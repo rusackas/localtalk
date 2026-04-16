@@ -11,39 +11,43 @@ enum AppState {
 class StatusBarController: NSObject {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
-    private var spinner: NSProgressIndicator?
+    // Spinner is added once and never removed — removeFromSuperview on a status bar
+    // button subview triggers an Auto Layout exception in NSISEngine.
+    private let spinner: NSProgressIndicator = {
+        let s = NSProgressIndicator(frame: NSRect(x: 5, y: 3, width: 16, height: 16))
+        s.style = .spinning
+        s.controlSize = .small
+        s.isDisplayedWhenStopped = false
+        return s
+    }()
     private var statusMenuItem: NSMenuItem!
     private var settingsMenuItem: NSMenuItem!
     private var updateMenuItem: NSMenuItem!
     private var checkMenuItem: NSMenuItem!
 
+    private let checkAction: () async -> String?
+
     init(onCheckForUpdates: @escaping () async -> String?) {
         self.checkAction = onCheckForUpdates
         super.init()
+        if let button = statusItem.button {
+            button.addSubview(spinner)
+        }
         buildMenu()
         setState(.loading())
     }
 
-    private let checkAction: () async -> String?
-
     func setState(_ state: AppState) {
         guard let button = statusItem.button else { return }
 
-        spinner?.stopAnimation(nil)
-        spinner?.removeFromSuperview()
-        spinner = nil
+        spinner.stopAnimation(nil)
         button.image = nil
         settingsMenuItem.isHidden = true
 
         switch state {
         case .loading(let message):
             statusItem.length = 26
-            let s = NSProgressIndicator(frame: NSRect(x: 5, y: 3, width: 16, height: 16))
-            s.style = .spinning
-            s.controlSize = .small
-            s.startAnimation(nil)
-            button.addSubview(s)
-            spinner = s
+            spinner.startAnimation(nil)
             button.toolTip = "LocalTalk: \(message)"
             setStatusLine(message)
 
