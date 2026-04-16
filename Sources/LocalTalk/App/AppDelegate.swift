@@ -15,40 +15,67 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             await UpdateChecker.availableUpdate()
         })
 
-        requestPermissions()
+        AVCaptureDevice.requestAccess(for: .audio) { _ in }
 
         Task { @MainActor in
-            statusBar.setState(.loading("Loading Whisper model…"))
+            await ensureAccessibility()
+            startFnMonitor()
+            await loadModel()
 
-            let downloadHint = Task { @MainActor in
-                try? await Task.sleep(for: .seconds(4))
-                if !transcriber.isReady {
-                    statusBar.setState(.loading("Downloading model (first run)…"))
-                }
-            }
-
-            do {
-                try await transcriber.load()
-                downloadHint.cancel()
-                statusBar.setState(.ready)
-            } catch {
-                downloadHint.cancel()
-                statusBar.setState(.error("Model load failed"))
-                return
-            }
-
-            // Silent background update check after model is ready
             if let version = await UpdateChecker.availableUpdate() {
                 statusBar.showUpdate(version: version)
             }
         }
+    }
 
+    // MARK: - Accessibility
+
+    private func ensureAccessibility() async {
+        guard !AXIsProcessTrusted() else { return }
+
+        statusBar.setState(.error("Accessibility permission needed"))
+
+        // Show the system prompt (opens Privacy & Security if not trusted)
+        let opts = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: true] as CFDictionary
+        AXIsProcessTrustedWithOptions(opts)
+
+        // Poll until the user grants it
+        while !AXIsProcessTrusted() {
+            try? await Task.sleep(for: .seconds(1))
+        }
+    }
+
+    private func startFnMonitor() {
         fnMonitor = FnKeyMonitor(
             onDown: { [weak self] in self?.handleFnDown() },
             onUp:   { [weak self] in self?.handleFnUp() }
         )
         fnMonitor.start()
     }
+
+    // MARK: - Model loading
+
+    private func loadModel() async {
+        statusBar.setState(.loading("Loading Whisper model…"))
+
+        let downloadHint = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4))
+            if !transcriber.isReady {
+                statusBar.setState(.loading("Downloading model (first run)…"))
+            }
+        }
+
+        do {
+            try await transcriber.load()
+            downloadHint.cancel()
+            statusBar.setState(.ready)
+        } catch {
+            downloadHint.cancel()
+            statusBar.setState(.error("Model load failed"))
+        }
+    }
+
+    // MARK: - Recording
 
     private func handleFnDown() {
         guard transcriber.isReady, !recorder.isRecording else { return }
@@ -75,11 +102,5 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             } catch {}
             statusBar.setState(.ready)
         }
-    }
-
-    private func requestPermissions() {
-        let opts = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: true] as CFDictionary
-        AXIsProcessTrustedWithOptions(opts)
-        AVCaptureDevice.requestAccess(for: .audio) { _ in }
     }
 }

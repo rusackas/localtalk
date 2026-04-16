@@ -13,6 +13,7 @@ class StatusBarController: NSObject {
     private let menu = NSMenu()
     private var spinner: NSProgressIndicator?
     private var statusMenuItem: NSMenuItem!
+    private var settingsMenuItem: NSMenuItem!
     private var updateMenuItem: NSMenuItem!
     private var checkMenuItem: NSMenuItem!
 
@@ -32,6 +33,7 @@ class StatusBarController: NSObject {
         spinner?.removeFromSuperview()
         spinner = nil
         button.image = nil
+        settingsMenuItem.isHidden = true
 
         switch state {
         case .loading(let message):
@@ -68,12 +70,17 @@ class StatusBarController: NSObject {
             button.image = icon("exclamationmark.triangle", color: .systemYellow)
             button.toolTip = "LocalTalk: \(msg)"
             setStatusLine(msg)
+            settingsMenuItem.isHidden = !msg.lowercased().contains("accessibility")
         }
     }
 
     func showUpdate(version: String) {
         updateMenuItem.title = "↑ Update available: v\(version)"
         updateMenuItem.isHidden = false
+    }
+
+    @objc private func openAccessibilitySettings() {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
     }
 
     @objc private func openReleasesPage() {
@@ -118,6 +125,11 @@ class StatusBarController: NSObject {
         statusMenuItem.isEnabled = false
         statusMenuItem.isHidden = true
         menu.addItem(statusMenuItem)
+
+        settingsMenuItem = NSMenuItem(title: "Open Accessibility Settings…", action: #selector(openAccessibilitySettings), keyEquivalent: "")
+        settingsMenuItem.target = self
+        settingsMenuItem.isHidden = true
+        menu.addItem(settingsMenuItem)
 
         menu.addItem(.separator())
 
