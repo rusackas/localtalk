@@ -16,11 +16,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         requestPermissions()
 
         Task { @MainActor in
-            statusBar.setState(.loading)
+            statusBar.setState(.loading("Loading Whisper model…"))
+
+            // After a few seconds, hint that a download might be in progress
+            let downloadHint = Task { @MainActor in
+                try await Task.sleep(for: .seconds(4))
+                if !transcriber.isReady {
+                    statusBar.setState(.loading("Downloading model (first run)…"))
+                }
+            }
+
             do {
                 try await transcriber.load()
+                downloadHint.cancel()
                 statusBar.setState(.ready)
             } catch {
+                downloadHint.cancel()
                 statusBar.setState(.error("Model load failed"))
             }
         }
