@@ -11,16 +11,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
-        statusBar = StatusBarController()
+        statusBar = StatusBarController(onCheckForUpdates: {
+            await UpdateChecker.availableUpdate()
+        })
 
         requestPermissions()
 
         Task { @MainActor in
             statusBar.setState(.loading("Loading Whisper model…"))
 
-            // After a few seconds, hint that a download might be in progress
             let downloadHint = Task { @MainActor in
-                try await Task.sleep(for: .seconds(4))
+                try? await Task.sleep(for: .seconds(4))
                 if !transcriber.isReady {
                     statusBar.setState(.loading("Downloading model (first run)…"))
                 }
@@ -33,6 +34,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             } catch {
                 downloadHint.cancel()
                 statusBar.setState(.error("Model load failed"))
+                return
+            }
+
+            // Silent background update check after model is ready
+            if let version = await UpdateChecker.availableUpdate() {
+                statusBar.showUpdate(version: version)
             }
         }
 
@@ -65,19 +72,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if !trimmed.isEmpty {
                     injector.inject(trimmed)
                 }
-            } catch {
-                // silent on transcription errors
-            }
+            } catch {}
             statusBar.setState(.ready)
         }
     }
 
     private func requestPermissions() {
-        // Accessibility — covers event tap and CGEvent injection
         let opts = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: true] as CFDictionary
         AXIsProcessTrustedWithOptions(opts)
-
-        // Microphone
         AVCaptureDevice.requestAccess(for: .audio) { _ in }
     }
 }

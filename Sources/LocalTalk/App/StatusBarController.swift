@@ -8,16 +8,22 @@ enum AppState {
     case error(String)
 }
 
-class StatusBarController {
+class StatusBarController: NSObject {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
     private var spinner: NSProgressIndicator?
     private var statusMenuItem: NSMenuItem!
+    private var updateMenuItem: NSMenuItem!
+    private var checkMenuItem: NSMenuItem!
 
-    init() {
+    init(onCheckForUpdates: @escaping () async -> String?) {
+        self.checkAction = onCheckForUpdates
+        super.init()
         buildMenu()
         setState(.loading())
     }
+
+    private let checkAction: () async -> String?
 
     func setState(_ state: AppState) {
         guard let button = statusItem.button else { return }
@@ -65,6 +71,31 @@ class StatusBarController {
         }
     }
 
+    func showUpdate(version: String) {
+        updateMenuItem.title = "↑ Update available: v\(version)"
+        updateMenuItem.isHidden = false
+    }
+
+    @objc private func openReleasesPage() {
+        NSWorkspace.shared.open(UpdateChecker.releasesURL)
+    }
+
+    @objc private func checkForUpdates() {
+        checkMenuItem.title = "Checking…"
+        checkMenuItem.isEnabled = false
+        Task { @MainActor in
+            if let version = await checkAction() {
+                showUpdate(version: version)
+                NSWorkspace.shared.open(UpdateChecker.releasesURL)
+            } else {
+                checkMenuItem.title = "Up to date ✓"
+                try? await Task.sleep(for: .seconds(2))
+            }
+            checkMenuItem.title = "Check for Updates…"
+            checkMenuItem.isEnabled = true
+        }
+    }
+
     private func setStatusLine(_ text: String?) {
         statusMenuItem.title = text ?? ""
         statusMenuItem.isHidden = (text == nil)
@@ -87,6 +118,17 @@ class StatusBarController {
         statusMenuItem.isEnabled = false
         statusMenuItem.isHidden = true
         menu.addItem(statusMenuItem)
+
+        menu.addItem(.separator())
+
+        updateMenuItem = NSMenuItem(title: "", action: #selector(openReleasesPage), keyEquivalent: "")
+        updateMenuItem.target = self
+        updateMenuItem.isHidden = true
+        menu.addItem(updateMenuItem)
+
+        checkMenuItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+        checkMenuItem.target = self
+        menu.addItem(checkMenuItem)
 
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
