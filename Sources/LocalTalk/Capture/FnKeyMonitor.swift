@@ -4,7 +4,7 @@ import Foundation
 // Monitors the fn/Globe key (keyCode 63) via a CGEventTap on flagsChanged events.
 // Requires Accessibility permission (covers both listening and posting events).
 class FnKeyMonitor {
-    private var tap: CFMachPort?
+    fileprivate var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private let onDown: () -> Void
     private let onUp: () -> Void
