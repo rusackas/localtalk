@@ -1,49 +1,76 @@
 import AVFoundation
 
 class MicrophoneRecorder {
-    private var audioRecorder: AVAudioRecorder?
-    private let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("localtalk_rec.wav")
+    private let engine = AVAudioEngine()
+    private var converter: AVAudioConverter?
+    private var samples: [Float] = []
     private(set) var isRecording = false
 
-    // Records microphone at 16 kHz mono — the format WhisperKit expects.
+    private let targetFormat = AVAudioFormat(
+        commonFormat: .pcmFormatFloat32,
+        sampleRate: 16000,
+        channels: 1,
+        interleaved: false
+    )!
+
+    // Call once after mic permission is granted. Starts the engine with a dummy tap,
+    // waits for the hardware to spin up, then removes the tap — engine stays running
+    // so all subsequent start() calls have zero initialization latency.
+    func warmUp() async {
+        let inputNode = engine.inputNode
+        let nativeFormat = inputNode.outputFormat(forBus: 0)
+        converter = AVAudioConverter(from: nativeFormat, to: targetFormat)
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: nativeFormat) { _, _ in }
+        guard (try? engine.start()) != nil else {
+            inputNode.removeTap(onBus: 0)
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(200))
+        inputNode.removeTap(onBus: 0)
+    }
+
     func start() throws {
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: 16000.0,
-            AVNumberOfChannelsKey: 1,
-            AVLinearPCMBitDepthKey: 16,
-            AVLinearPCMIsFloatKey: false,
-            AVLinearPCMIsBigEndianKey: false
-        ]
-        audioRecorder = try AVAudioRecorder(url: tempURL, settings: settings)
-        audioRecorder?.record()
+        samples = []
+        let inputNode = engine.inputNode
+        if converter == nil {
+            let nativeFormat = inputNode.outputFormat(forBus: 0)
+            converter = AVAudioConverter(from: nativeFormat, to: targetFormat)
+        }
+        guard let converter else {
+            throw NSError(domain: "MicrophoneRecorder", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "Could not create audio converter"])
+        }
+        let nativeFormat = inputNode.outputFormat(forBus: 0)
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: nativeFormat) { [weak self] buffer, _ in
+            self?.convert(buffer, using: converter)
+        }
+        if !engine.isRunning { try engine.start() }
         isRecording = true
     }
 
-    // Stops recording and returns Float32 samples at 16 kHz.
     func stop() -> [Float] {
-        audioRecorder?.stop()
-        audioRecorder = nil
+        engine.inputNode.removeTap(onBus: 0)
         isRecording = false
-        return loadSamples()
+        return samples
     }
 
-    private func loadSamples() -> [Float] {
-        defer { try? FileManager.default.removeItem(at: tempURL) }
-        guard FileManager.default.fileExists(atPath: tempURL.path) else { return [] }
-        do {
-            let file = try AVAudioFile(forReading: tempURL)
-            let capacity = AVAudioFrameCount(file.length)
-            guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: capacity) else { return [] }
-            try file.read(into: buffer)
-            guard let channelData = buffer.floatChannelData?[0] else { return [] }
-            return Array(UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength)))
-        } catch {
-            return []
+    private func convert(_ inputBuffer: AVAudioPCMBuffer, using converter: AVAudioConverter) {
+        let ratio = targetFormat.sampleRate / inputBuffer.format.sampleRate
+        let outputFrames = AVAudioFrameCount(Double(inputBuffer.frameLength) * ratio)
+        guard outputFrames > 0,
+              let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outputFrames)
+        else { return }
+
+        var consumed = false
+        let status = converter.convert(to: outputBuffer, error: nil) { _, outStatus in
+            if consumed { outStatus.pointee = .noDataNow; return nil }
+            consumed = true
+            outStatus.pointee = .haveData
+            return inputBuffer
         }
-    }
 
-    deinit {
-        try? FileManager.default.removeItem(at: tempURL)
+        guard status != .error,
+              let channelData = outputBuffer.floatChannelData?[0] else { return }
+        samples.append(contentsOf: UnsafeBufferPointer(start: channelData, count: Int(outputBuffer.frameLength)))
     }
 }

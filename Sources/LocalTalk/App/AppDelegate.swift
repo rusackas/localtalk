@@ -3,28 +3,37 @@ import AVFoundation
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBar: StatusBarController!
-    private var fnMonitor: FnKeyMonitor!
+    private var keyMonitor: KeyMonitor!
     private var recorder = MicrophoneRecorder()
     private var transcriber = WhisperTranscriber()
     private let injector = TextInjector()
+    private lazy var settingsWindow = SettingsWindowController()
+    private var recordingStartTime: Date?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
-        statusBar = StatusBarController(onCheckForUpdates: {
-            await UpdateChecker.availableUpdate()
-        })
-
-        AVCaptureDevice.requestAccess(for: .audio) { _ in }
+        statusBar = StatusBarController(
+            onCheckForUpdates: { await UpdateChecker.availableUpdate() },
+            onOpenSettings: { [weak self] in self?.settingsWindow.show() }
+        )
 
         Task { @MainActor in
+            await withCheckedContinuation { cont in
+                AVCaptureDevice.requestAccess(for: .audio) { _ in cont.resume() }
+            }
             await ensureAccessibility()
-            startFnMonitor()
+            await recorder.warmUp()
+            startKeyMonitor()
             await loadModel()
 
             if let version = await UpdateChecker.availableUpdate() {
                 statusBar.showUpdate(version: version)
             }
+        }
+
+        settingsWindow.onTriggerChanged = { [weak self] newTrigger in
+            self?.keyMonitor.updateTrigger(newTrigger)
         }
     }
 
@@ -35,22 +44,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusBar.setState(.error("Accessibility permission needed"))
 
-        // Show the system prompt (opens Privacy & Security if not trusted)
         let opts = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: true] as CFDictionary
         AXIsProcessTrustedWithOptions(opts)
 
-        // Poll until the user grants it
         while !AXIsProcessTrusted() {
             try? await Task.sleep(for: .seconds(1))
         }
     }
 
-    private func startFnMonitor() {
-        fnMonitor = FnKeyMonitor(
-            onDown: { [weak self] in self?.handleFnDown() },
-            onUp:   { [weak self] in self?.handleFnUp() }
+    private func startKeyMonitor() {
+        let trigger = TriggerKey.load()
+        keyMonitor = KeyMonitor(
+            trigger: trigger,
+            onDown: { [weak self] in self?.handleKeyDown() },
+            onUp:   { [weak self] in self?.handleKeyUp() }
         )
-        fnMonitor.start()
+        if !keyMonitor.start() {
+            statusBar.setState(.error("Accessibility permission needed"))
+        }
     }
 
     // MARK: - Model loading
@@ -77,18 +88,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Recording
 
-    private func handleFnDown() {
+    private func handleKeyDown() {
         guard transcriber.isReady, !recorder.isRecording else { return }
         do {
             try recorder.start()
+            recordingStartTime = Date()
             DispatchQueue.main.async { self.statusBar.setState(.recording) }
         } catch {
             DispatchQueue.main.async { self.statusBar.setState(.error("Mic error")) }
         }
     }
 
-    private func handleFnUp() {
+    private func handleKeyUp() {
         guard recorder.isRecording else { return }
+        let elapsed = recordingStartTime.map { Date().timeIntervalSince($0) } ?? 0
+        recordingStartTime = nil
+        UsageStats.addRecording(seconds: elapsed)
+
         let samples = recorder.stop()
         DispatchQueue.main.async { self.statusBar.setState(.processing) }
 
@@ -98,6 +114,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
                     injector.inject(trimmed)
+                    UsageStats.addCharacters(trimmed.count)
                 }
             } catch {}
             statusBar.setState(.ready)

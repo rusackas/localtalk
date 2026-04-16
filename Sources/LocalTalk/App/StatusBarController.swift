@@ -18,17 +18,20 @@ class StatusBarController: NSObject {
         s.style = .spinning
         s.controlSize = .small
         s.isDisplayedWhenStopped = false
+        s.isHidden = true
         return s
     }()
     private var statusMenuItem: NSMenuItem!
-    private var settingsMenuItem: NSMenuItem!
+    private var accessibilityMenuItem: NSMenuItem!
     private var updateMenuItem: NSMenuItem!
     private var checkMenuItem: NSMenuItem!
 
     private let checkAction: () async -> String?
+    private let openSettings: () -> Void
 
-    init(onCheckForUpdates: @escaping () async -> String?) {
+    init(onCheckForUpdates: @escaping () async -> String?, onOpenSettings: @escaping () -> Void) {
         self.checkAction = onCheckForUpdates
+        self.openSettings = onOpenSettings
         super.init()
         if let button = statusItem.button {
             button.addSubview(spinner)
@@ -41,12 +44,14 @@ class StatusBarController: NSObject {
         guard let button = statusItem.button else { return }
 
         spinner.stopAnimation(nil)
+        spinner.isHidden = true
         button.image = nil
-        settingsMenuItem.isHidden = true
+        accessibilityMenuItem.isHidden = true
 
         switch state {
         case .loading(let message):
             statusItem.length = 26
+            spinner.isHidden = false
             spinner.startAnimation(nil)
             button.toolTip = "LocalTalk: \(message)"
             setStatusLine(message)
@@ -54,7 +59,7 @@ class StatusBarController: NSObject {
         case .ready:
             statusItem.length = NSStatusItem.variableLength
             button.image = icon("mic", color: .labelColor)
-            button.toolTip = "LocalTalk: hold fn to dictate"
+            button.toolTip = "LocalTalk: hold \(TriggerKey.load().displayName) to dictate"
             setStatusLine(nil)
 
         case .recording:
@@ -74,7 +79,7 @@ class StatusBarController: NSObject {
             button.image = icon("exclamationmark.triangle", color: .systemYellow)
             button.toolTip = "LocalTalk: \(msg)"
             setStatusLine(msg)
-            settingsMenuItem.isHidden = !msg.lowercased().contains("accessibility")
+            accessibilityMenuItem.isHidden = !msg.lowercased().contains("accessibility")
         }
     }
 
@@ -89,6 +94,10 @@ class StatusBarController: NSObject {
 
     @objc private func openReleasesPage() {
         NSWorkspace.shared.open(UpdateChecker.releasesURL)
+    }
+
+    @objc private func openSettingsPanel() {
+        openSettings()
     }
 
     @objc private func checkForUpdates() {
@@ -130,10 +139,10 @@ class StatusBarController: NSObject {
         statusMenuItem.isHidden = true
         menu.addItem(statusMenuItem)
 
-        settingsMenuItem = NSMenuItem(title: "Open Accessibility Settings…", action: #selector(openAccessibilitySettings), keyEquivalent: "")
-        settingsMenuItem.target = self
-        settingsMenuItem.isHidden = true
-        menu.addItem(settingsMenuItem)
+        accessibilityMenuItem = NSMenuItem(title: "Open Accessibility Settings…", action: #selector(openAccessibilitySettings), keyEquivalent: "")
+        accessibilityMenuItem.target = self
+        accessibilityMenuItem.isHidden = true
+        menu.addItem(accessibilityMenuItem)
 
         menu.addItem(.separator())
 
@@ -145,6 +154,10 @@ class StatusBarController: NSObject {
         checkMenuItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
         checkMenuItem.target = self
         menu.addItem(checkMenuItem)
+
+        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettingsPanel), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
 
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
