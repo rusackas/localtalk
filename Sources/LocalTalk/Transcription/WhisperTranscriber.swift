@@ -18,6 +18,7 @@ class WhisperTranscriber {
         let options = DecodingOptions(
             task: .transcribe,
             temperature: 0.0,
+            skipSpecialTokens: true,
             suppressBlank: true,
             compressionRatioThreshold: 2.4,
             logProbThreshold: -1.0,
@@ -26,11 +27,18 @@ class WhisperTranscriber {
 
         let results = try await whisper.transcribe(audioArray: samples, decodeOptions: options)
 
-        return results
-            .flatMap(\.segments)
-            .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && !isNoise($0) }
-            .joined(separator: " ")
+        var texts: [String] = []
+        for result in results {
+            for segment in result.segments {
+                let text = stripTokens(segment.text).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty && !isNoise(text) { texts.append(text) }
+            }
+        }
+        return texts.joined(separator: " ")
+    }
+
+    private func stripTokens(_ text: String) -> String {
+        text.replacingOccurrences(of: #"<\|[^|>]+\|>"#, with: "", options: .regularExpression)
     }
 
     private func isNoise(_ text: String) -> Bool {
