@@ -14,9 +14,9 @@ The Whisper `small.en` model (~150 MB) downloads automatically from Hugging Face
 
 ## Quick start (pre-built)
 
-1. Download `LocalTalk.zip` from this repo
-2. Unzip and move `LocalTalk.app` to `/Applications`
-3. Double-click to launch
+1. Download `LocalTalk.dmg` from this repo
+2. Open the DMG, drag **LocalTalk** into **Applications**
+3. Launch it from Applications
 4. Grant **Accessibility** and **Microphone** permissions when prompted
 5. The mic icon appears in your menubar — you're ready
 
@@ -32,13 +32,11 @@ cd localtalk
 make run        # builds, bundles, and launches
 ```
 
-Or just build the bundle without launching:
+Or build a distributable DMG:
 
 ```bash
-make bundle     # produces build/LocalTalk.app
+make dmg        # produces LocalTalk.dmg
 ```
-
-Copy `build/LocalTalk.app` to `/Applications` and launch it.
 
 ## Permissions
 
