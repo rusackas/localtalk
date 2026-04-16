@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.localtalk.app</string>
+    <key>CFBundleName</key>
+    <string>LocalTalk</string>
+    <key>CFBundleExecutable</key>
+    <string>LocalTalk</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>LocalTalk uses the microphone to transcribe your speech and type it at the cursor.</string>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>LocalTalk needs Accessibility access to detect the fn key and type transcribed text at the cursor.</string>
+</dict>
+</plist>
