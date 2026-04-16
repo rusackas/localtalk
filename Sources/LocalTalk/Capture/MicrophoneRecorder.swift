@@ -29,10 +29,10 @@ class MicrophoneRecorder {
     }
 
     private func loadSamples() -> [Float] {
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         guard FileManager.default.fileExists(atPath: tempURL.path) else { return [] }
         do {
             let file = try AVAudioFile(forReading: tempURL)
-            // processingFormat defaults to deinterleaved Float32 at the file's sample rate
             let capacity = AVAudioFrameCount(file.length)
             guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: capacity) else { return [] }
             try file.read(into: buffer)
@@ -41,5 +41,9 @@ class MicrophoneRecorder {
         } catch {
             return []
         }
+    }
+
+    deinit {
+        try? FileManager.default.removeItem(at: tempURL)
     }
 }
