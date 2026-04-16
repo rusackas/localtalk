@@ -36,7 +36,7 @@ dmg: bundle
 	# Mount and arrange icons
 	hdiutil attach "$(DMG_TMP)" -mountpoint "/Volumes/$(DMG_VOL)" -noautoopen
 	sleep 2
-	bash Scripts/arrange_dmg.sh "$(DMG_VOL)" "$(APP_NAME).app"
+	bash Scripts/arrange_dmg.sh "$(DMG_VOL)" "$(APP_NAME).app" || true
 	hdiutil detach "/Volumes/$(DMG_VOL)"
 	# Convert to compressed read-only DMG
 	hdiutil convert "$(DMG_TMP)" -format UDZO -imagekey zlib-level=9 -o "$(DMG_NAME)"
