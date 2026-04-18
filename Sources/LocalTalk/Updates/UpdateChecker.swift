@@ -1,7 +1,7 @@
 import Foundation
 
 struct UpdateChecker {
-    static let currentVersion = "1.0.0"
+    static let currentVersion = "1.1.0"
 
     private static let apiURL = URL(string: "https://api.github.com/repos/rusackas/localtalk/releases/latest")!
     static let releasesURL = URL(string: "https://github.com/rusackas/localtalk/releases")!
