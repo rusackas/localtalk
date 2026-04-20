@@ -20,6 +20,9 @@ bundle: icon build
 	cp $(BUILD_DIR)/$(APP_NAME) $(BUNDLE_DIR)/Contents/MacOS/$(APP_NAME)
 	cp Resources/Info.plist $(BUNDLE_DIR)/Contents/Info.plist
 	cp Resources/AppIcon.icns $(BUNDLE_DIR)/Contents/Resources/AppIcon.icns
+	# SwiftPM resource bundles (e.g. swift-transformers_Hub.bundle with fallback tokenizer configs).
+	# Without these, Bundle.module fatalErrors whenever WhisperKit hits its fallback path.
+	find -L $(BUILD_DIR) -maxdepth 1 -name '*.bundle' -exec cp -R {} $(BUNDLE_DIR)/Contents/Resources/ \;
 	codesign --force --sign - --identifier com.localtalk.app $(BUNDLE_DIR)
 
 dmg: bundle
