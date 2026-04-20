@@ -24,10 +24,10 @@ jobs:
           key: ${{ runner.os }}-spm-${{ hashFiles('Package.resolved') }}
           restore-keys: ${{ runner.os }}-spm-
 
-      - name: Build
-        run: swift build -c release
+      - name: Build DMG
+        run: make dmg
 
-      - name: Tag new version
+      - name: Tag and release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -35,8 +35,11 @@ jobs:
           VERSION="v$(cat VERSION)"
           if git rev-parse "$VERSION" >/dev/null 2>&1; then
             echo "Tag $VERSION already exists — skipping release"
-          else
-            git tag "$VERSION"
-            git push origin "$VERSION"
-            echo "Created tag $VERSION — release workflow will publish the DMG"
+            exit 0
           fi
+          git tag "$VERSION"
+          git push origin "$VERSION"
+          gh release create "$VERSION" LocalTalk.dmg \
+            --title "$VERSION" \
+            --notes "Download **LocalTalk.dmg**, open it, drag LocalTalk into Applications, and launch. Grant Accessibility and Microphone permissions when prompted. The Whisper model (~150 MB) downloads on first run."
+          echo "Published release $VERSION"
