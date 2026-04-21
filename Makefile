@@ -19,10 +19,17 @@ bundle: icon build
 	mkdir -p $(BUNDLE_DIR)/Contents/Resources
 	cp $(BUILD_DIR)/$(APP_NAME) $(BUNDLE_DIR)/Contents/MacOS/$(APP_NAME)
 	cp Resources/Info.plist $(BUNDLE_DIR)/Contents/Info.plist
+	/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $$(cat VERSION)" $(BUNDLE_DIR)/Contents/Info.plist
 	cp Resources/AppIcon.icns $(BUNDLE_DIR)/Contents/Resources/AppIcon.icns
-	# SwiftPM resource bundles (e.g. swift-transformers_Hub.bundle with fallback tokenizer configs).
-	# Without these, Bundle.module fatalErrors whenever WhisperKit hits its fallback path.
-	find -L $(BUILD_DIR) -maxdepth 1 -name '*.bundle' -exec cp -R {} $(BUNDLE_DIR)/Contents/Resources/ \;
+	# SwiftPM synthesizes a Bundle.module accessor that looks at
+	# Bundle.main.bundleURL.appendingPathComponent("<name>.bundle"), which for a .app
+	# resolves to LocalTalk.app/<name>.bundle — but codesign rejects anything at the bundle
+	# root. Ship the resource bundle at Contents/Resources/Hub.bundle and binary-patch
+	# the hardcoded string in the compiled executable. Both "swift-transformers_Hub.bundle"
+	# and "Contents/Resources/Hub.bundle" are 29 bytes, so in-place replacement is safe.
+	# Codesign runs AFTER the patch so the signature covers the modified bytes.
+	cp -R $(BUILD_DIR)/swift-transformers_Hub.bundle $(BUNDLE_DIR)/Contents/Resources/Hub.bundle
+	python3 -c 'import sys; p="$(BUNDLE_DIR)/Contents/MacOS/$(APP_NAME)"; d=open(p,"rb").read(); n=d.count(b"swift-transformers_Hub.bundle\0"); assert n>=1, "expected bundle path string in binary"; d=d.replace(b"swift-transformers_Hub.bundle\0", b"Contents/Resources/Hub.bundle\0"); open(p,"wb").write(d); print(f"patched {n} occurrence(s)")'
 	codesign --force --sign - --identifier com.localtalk.app $(BUNDLE_DIR)
 
 dmg: bundle
