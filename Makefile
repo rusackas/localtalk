@@ -5,6 +5,17 @@ DMG_NAME = $(APP_NAME).dmg
 DMG_VOL = $(APP_NAME)
 DMG_TMP = /tmp/lt-tmp.dmg
 DMG_STAGING = /tmp/lt-staging
+ENTITLEMENTS = Resources/LocalTalk.entitlements
+
+# Set SIGNING_IDENTITY to a Developer ID for release builds (triggers hardened
+# runtime + timestamp + entitlements). Defaults to ad-hoc signing for local dev.
+SIGNING_IDENTITY ?= -
+ifeq ($(SIGNING_IDENTITY),-)
+CODESIGN_FLAGS = --force --sign - --identifier com.localtalk.app
+else
+CODESIGN_FLAGS = --force --sign "$(SIGNING_IDENTITY)" --identifier com.localtalk.app \
+                 --options runtime --entitlements $(ENTITLEMENTS) --timestamp
+endif
 
 .PHONY: build bundle icon dmg clean run
 
@@ -28,9 +39,10 @@ bundle: icon build
 	# the hardcoded string in the compiled executable. Both "swift-transformers_Hub.bundle"
 	# and "Contents/Resources/Hub.bundle" are 29 bytes, so in-place replacement is safe.
 	# Codesign runs AFTER the patch so the signature covers the modified bytes.
+	rm -rf $(BUNDLE_DIR)/Contents/Resources/Hub.bundle
 	cp -R $(BUILD_DIR)/swift-transformers_Hub.bundle $(BUNDLE_DIR)/Contents/Resources/Hub.bundle
 	python3 -c 'import sys; p="$(BUNDLE_DIR)/Contents/MacOS/$(APP_NAME)"; d=open(p,"rb").read(); n=d.count(b"swift-transformers_Hub.bundle\0"); assert n>=1, "expected bundle path string in binary"; d=d.replace(b"swift-transformers_Hub.bundle\0", b"Contents/Resources/Hub.bundle\0"); open(p,"wb").write(d); print(f"patched {n} occurrence(s)")'
-	codesign --force --sign - --identifier com.localtalk.app $(BUNDLE_DIR)
+	codesign $(CODESIGN_FLAGS) $(BUNDLE_DIR)
 
 dmg: bundle
 	# Clean up any leftovers from a previous run
