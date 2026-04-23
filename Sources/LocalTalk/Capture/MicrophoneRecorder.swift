@@ -13,9 +13,9 @@ class MicrophoneRecorder {
         interleaved: false
     )!
 
-    // Call once after mic permission is granted. Starts the engine with a dummy tap,
-    // waits for the hardware to spin up, then removes the tap — engine stays running
-    // so all subsequent start() calls have zero initialization latency.
+    // Call once after mic permission is granted. Primes the converter and format
+    // negotiation, then releases the mic so macOS doesn't show the "in use" indicator
+    // while idle. The engine is re-started on each start() call.
     func warmUp() async {
         let inputNode = engine.inputNode
         let nativeFormat = inputNode.outputFormat(forBus: 0)
@@ -27,6 +27,7 @@ class MicrophoneRecorder {
         }
         try? await Task.sleep(for: .milliseconds(200))
         inputNode.removeTap(onBus: 0)
+        engine.stop()
     }
 
     func start() throws {
@@ -50,6 +51,7 @@ class MicrophoneRecorder {
 
     func stop() -> [Float] {
         engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
         isRecording = false
         return samples
     }

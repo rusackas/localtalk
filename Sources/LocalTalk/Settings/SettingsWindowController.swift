@@ -1,14 +1,24 @@
 import AppKit
 
 class SettingsWindowController: NSWindowController {
-    private var popUp: NSPopUpButton!
+    private var triggerPopUp: NSPopUpButton!
+    private var launchAtLoginCheck: NSButton!
+    private var soundPopUp: NSPopUpButton!
+    private var modelPopUp: NSPopUpButton!
+    private var languagePopUp: NSPopUpButton!
+    private var insertionPopUp: NSPopUpButton!
+    private var insertionDescription: NSTextField!
+    private var autoCapCheck: NSButton!
+    private var trailingPeriodCheck: NSButton!
     private var recordedLabel: NSTextField!
     private var typedLabel: NSTextField!
+
     var onTriggerChanged: ((TriggerKey) -> Void)?
+    var onTranscriptionChanged: (() -> Void)?
 
     init() {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 340, height: 210),
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 620),
             styleMask: [.titled, .closable, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -23,11 +33,22 @@ class SettingsWindowController: NSWindowController {
     required init?(coder: NSCoder) { fatalError() }
 
     func show() {
-        let idx = TriggerKey.presets.firstIndex(of: TriggerKey.load()) ?? 0
-        popUp.selectItem(at: idx)
+        loadFromDefaults()
         updateStats()
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func loadFromDefaults() {
+        triggerPopUp.selectItem(at: TriggerKey.presets.firstIndex(of: TriggerKey.load()) ?? 0)
+        launchAtLoginCheck.state = LaunchAtLogin.isEnabled ? .on : .off
+        soundPopUp.selectItem(at: FeedbackSound.allCases.firstIndex(of: AudioFeedback.selected) ?? 0)
+        modelPopUp.selectItem(at: ModelSize.allCases.firstIndex(of: TranscriptionSettings.modelSize) ?? 0)
+        languagePopUp.selectItem(at: Language.allCases.firstIndex(of: TranscriptionSettings.language) ?? 0)
+        insertionPopUp.selectItem(at: InsertionMode.allCases.firstIndex(of: OutputSettings.insertionMode) ?? 0)
+        updateInsertionDescription()
+        autoCapCheck.state = OutputSettings.autoCapitalize ? .on : .off
+        trailingPeriodCheck.state = OutputSettings.addTrailingPeriod ? .on : .off
     }
 
     private func updateStats() {
@@ -35,71 +56,150 @@ class SettingsWindowController: NSWindowController {
         typedLabel.stringValue    = "Typed:       \(UsageStats.formattedChars) characters"
     }
 
+    private func updateInsertionDescription() {
+        let mode = InsertionMode.allCases[insertionPopUp.indexOfSelectedItem]
+        insertionDescription.stringValue = mode.explanation
+    }
+
+    // MARK: - UI construction
+
     private func buildUI() {
         guard let content = window?.contentView else { return }
 
-        // Trigger key row
-        let triggerLabel = NSTextField(labelWithString: "Hold to record:")
-        triggerLabel.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(triggerLabel)
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 14
+        stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(stack)
 
-        popUp = NSPopUpButton(frame: .zero, pullsDown: false)
-        TriggerKey.presets.forEach { popUp.addItem(withTitle: $0.displayName) }
-        popUp.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(popUp)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: content.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+        ])
 
-        // Separator
-        let sep = NSBox()
-        sep.boxType = .separator
-        sep.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(sep)
+        // General
+        stack.addArrangedSubview(sectionHeader("General"))
+        launchAtLoginCheck = NSButton(checkboxWithTitle: "Launch at login",
+                                       target: self, action: #selector(toggleLaunchAtLogin))
+        stack.addArrangedSubview(launchAtLoginCheck)
+
+        triggerPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
+        TriggerKey.presets.forEach { triggerPopUp.addItem(withTitle: $0.displayName) }
+        stack.addArrangedSubview(labeledRow("Hold to record:", control: triggerPopUp))
+
+        soundPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
+        FeedbackSound.allCases.forEach { soundPopUp.addItem(withTitle: $0.displayName) }
+        soundPopUp.target = self
+        soundPopUp.action = #selector(soundChanged)
+        stack.addArrangedSubview(labeledRow("Sound on start/stop:", control: soundPopUp))
+
+        stack.addArrangedSubview(separator())
+
+        // Transcription
+        stack.addArrangedSubview(sectionHeader("Transcription"))
+        modelPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
+        ModelSize.allCases.forEach { modelPopUp.addItem(withTitle: $0.displayName) }
+        stack.addArrangedSubview(labeledRow("Model:", control: modelPopUp))
+
+        languagePopUp = NSPopUpButton(frame: .zero, pullsDown: false)
+        Language.allCases.forEach { languagePopUp.addItem(withTitle: $0.displayName) }
+        stack.addArrangedSubview(labeledRow("Language:", control: languagePopUp))
+
+        let modelNote = NSTextField(wrappingLabelWithString:
+            "Switching the model downloads new weights on first use (40 MB – 800 MB).")
+        modelNote.font = .systemFont(ofSize: 11)
+        modelNote.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(modelNote)
+
+        stack.addArrangedSubview(separator())
+
+        // Output
+        stack.addArrangedSubview(sectionHeader("Output"))
+        insertionPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
+        InsertionMode.allCases.forEach { insertionPopUp.addItem(withTitle: $0.displayName) }
+        insertionPopUp.target = self
+        insertionPopUp.action = #selector(insertionChanged)
+        stack.addArrangedSubview(labeledRow("Insertion mode:", control: insertionPopUp))
+
+        insertionDescription = NSTextField(wrappingLabelWithString: "")
+        insertionDescription.font = .systemFont(ofSize: 11)
+        insertionDescription.textColor = .secondaryLabelColor
+        insertionDescription.preferredMaxLayoutWidth = 380
+        stack.addArrangedSubview(insertionDescription)
+
+        autoCapCheck = NSButton(checkboxWithTitle: "Capitalize first letter", target: nil, action: nil)
+        stack.addArrangedSubview(autoCapCheck)
+        trailingPeriodCheck = NSButton(checkboxWithTitle: "Add trailing period if missing",
+                                        target: nil, action: nil)
+        stack.addArrangedSubview(trailingPeriodCheck)
+
+        stack.addArrangedSubview(separator())
 
         // Stats
+        stack.addArrangedSubview(sectionHeader("Usage"))
         recordedLabel = NSTextField(labelWithString: "")
         recordedLabel.textColor = .secondaryLabelColor
-        recordedLabel.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(recordedLabel)
+        stack.addArrangedSubview(recordedLabel)
 
         typedLabel = NSTextField(labelWithString: "")
         typedLabel.textColor = .secondaryLabelColor
-        typedLabel.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(typedLabel)
+        stack.addArrangedSubview(typedLabel)
 
         let resetBtn = NSButton(title: "Reset Stats", target: self, action: #selector(resetStats))
         resetBtn.bezelStyle = .inline
-        resetBtn.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(resetBtn)
+        stack.addArrangedSubview(resetBtn)
 
-        // Save button
+        // Save
         let saveBtn = NSButton(title: "Save", target: self, action: #selector(save))
         saveBtn.keyEquivalent = "\r"
-        saveBtn.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(saveBtn)
+        let saveRow = NSStackView(views: [NSView(), saveBtn])
+        saveRow.orientation = .horizontal
+        saveRow.distribution = .fill
+        saveRow.alignment = .centerY
+        stack.addArrangedSubview(saveRow)
+        saveRow.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -40).isActive = true
+    }
 
-        NSLayoutConstraint.activate([
-            triggerLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
-            triggerLabel.topAnchor.constraint(equalTo: content.topAnchor, constant: 24),
+    private func sectionHeader(_ title: String) -> NSTextField {
+        let label = NSTextField(labelWithString: title)
+        label.font = .boldSystemFont(ofSize: 13)
+        return label
+    }
 
-            popUp.leadingAnchor.constraint(equalTo: triggerLabel.trailingAnchor, constant: 12),
-            popUp.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
-            popUp.centerYAnchor.constraint(equalTo: triggerLabel.centerYAnchor),
+    private func separator() -> NSBox {
+        let box = NSBox()
+        box.boxType = .separator
+        box.widthAnchor.constraint(greaterThanOrEqualToConstant: 380).isActive = true
+        return box
+    }
 
-            sep.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
-            sep.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
-            sep.topAnchor.constraint(equalTo: triggerLabel.bottomAnchor, constant: 16),
+    private func labeledRow(_ text: String, control: NSControl) -> NSStackView {
+        let label = NSTextField(labelWithString: text)
+        label.widthAnchor.constraint(equalToConstant: 150).isActive = true
+        let row = NSStackView(views: [label, control])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 8
+        return row
+    }
 
-            recordedLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
-            recordedLabel.topAnchor.constraint(equalTo: sep.bottomAnchor, constant: 12),
+    // MARK: - Actions
 
-            typedLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
-            typedLabel.topAnchor.constraint(equalTo: recordedLabel.bottomAnchor, constant: 4),
+    @objc private func soundChanged() {
+        let selected = FeedbackSound.allCases[soundPopUp.indexOfSelectedItem]
+        AudioFeedback.preview(selected)
+    }
 
-            resetBtn.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
-            resetBtn.centerYAnchor.constraint(equalTo: typedLabel.centerYAnchor),
+    @objc private func insertionChanged() {
+        updateInsertionDescription()
+    }
 
-            saveBtn.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
-            saveBtn.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20),
-        ])
+    @objc private func toggleLaunchAtLogin() {
+        LaunchAtLogin.setEnabled(launchAtLoginCheck.state == .on)
     }
 
     @objc private func resetStats() {
@@ -108,9 +208,23 @@ class SettingsWindowController: NSWindowController {
     }
 
     @objc private func save() {
-        let selected = TriggerKey.presets[popUp.indexOfSelectedItem]
-        selected.save()
-        onTriggerChanged?(selected)
+        let previousModelName = TranscriptionSettings.modelName
+
+        let trigger = TriggerKey.presets[triggerPopUp.indexOfSelectedItem]
+        trigger.save()
+        onTriggerChanged?(trigger)
+
+        AudioFeedback.selected = FeedbackSound.allCases[soundPopUp.indexOfSelectedItem]
+        TranscriptionSettings.modelSize = ModelSize.allCases[modelPopUp.indexOfSelectedItem]
+        TranscriptionSettings.language = Language.allCases[languagePopUp.indexOfSelectedItem]
+        OutputSettings.insertionMode = InsertionMode.allCases[insertionPopUp.indexOfSelectedItem]
+        OutputSettings.autoCapitalize = autoCapCheck.state == .on
+        OutputSettings.addTrailingPeriod = trailingPeriodCheck.state == .on
+
+        if TranscriptionSettings.modelName != previousModelName {
+            onTranscriptionChanged?()
+        }
+
         close()
     }
 }

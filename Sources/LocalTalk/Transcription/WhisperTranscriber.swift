@@ -5,7 +5,7 @@ class WhisperTranscriber {
     private var whisper: WhisperKit?
     private(set) var isReady = false
 
-    func load(model: String = "small.en") async throws {
+    func load(model: String = TranscriptionSettings.modelName) async throws {
         let config = WhisperKitConfig(model: model)
         whisper = try await WhisperKit(config)
         isReady = true
@@ -17,6 +17,7 @@ class WhisperTranscriber {
 
         let options = DecodingOptions(
             task: .transcribe,
+            language: TranscriptionSettings.language.whisperCode,
             temperature: 0.0,
             skipSpecialTokens: true,
             suppressBlank: true,

@@ -35,6 +35,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindow.onTriggerChanged = { [weak self] newTrigger in
             self?.keyMonitor.updateTrigger(newTrigger)
         }
+        settingsWindow.onTranscriptionChanged = { [weak self] in
+            Task { @MainActor in await self?.loadModel() }
+        }
     }
 
     // MARK: - Accessibility
@@ -93,6 +96,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             try recorder.start()
             recordingStartTime = Date()
+            AudioFeedback.play()
             DispatchQueue.main.async { self.statusBar.setState(.recording) }
         } catch {
             DispatchQueue.main.async { self.statusBar.setState(.error("Mic error")) }
@@ -106,6 +110,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         UsageStats.addRecording(seconds: elapsed)
 
         let samples = recorder.stop()
+        AudioFeedback.play()
         DispatchQueue.main.async { self.statusBar.setState(.processing) }
 
         Task { @MainActor in
