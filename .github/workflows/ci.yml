@@ -57,13 +57,18 @@ jobs:
         if: github.event_name != 'push' || github.ref != 'refs/heads/main'
         run: make dmg
 
-      - name: Notarize and staple DMG
+      - name: Submit DMG for notarization (fire-and-forget)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           AC_API_KEY_BASE64: ${{ secrets.AC_API_KEY_BASE64 }}
           AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
           AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
         run: |
+          # Submit without --wait: the ticket attaches to the DMG's signature
+          # hash server-side, so Gatekeeper's online lookup works once Apple
+          # processes the submission. Stapling (skipped here) is only needed
+          # for offline first-opens — can be added back later as a separate
+          # workflow if required.
           KEY_PATH="$RUNNER_TEMP/api.p8"
           echo -n "$AC_API_KEY_BASE64" | base64 --decode -o "$KEY_PATH"
 
@@ -71,10 +76,7 @@ jobs:
             --key "$KEY_PATH" \
             --key-id "$AC_API_KEY_ID" \
             --issuer "$AC_API_ISSUER_ID" \
-            --wait
-
-          xcrun stapler staple LocalTalk.dmg
-          xcrun stapler validate LocalTalk.dmg
+            --no-wait
 
           rm "$KEY_PATH"
 
