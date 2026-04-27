@@ -1,0 +1,127 @@
+name: Staple notarization ticket
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to staple (e.g. v1.2.1). Defaults to latest."
+        required: false
+        type: string
+
+jobs:
+  staple:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: macos-15
+    permissions:
+      contents: write
+
+    steps:
+      - name: Resolve release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Stapling release: $TAG"
+
+      - name: Download notarization submission ID artifact
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          name: notarization
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Resolve submission ID
+        id: submission
+        env:
+          AC_API_KEY_BASE64: ${{ secrets.AC_API_KEY_BASE64 }}
+          AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
+          AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
+        run: |
+          if [ -f submission-id.txt ]; then
+            ID=$(cat submission-id.txt)
+            echo "Using submission ID from artifact: $ID"
+          else
+            # Manual dispatch or missing artifact — pick most recent submission.
+            KEY_PATH="$RUNNER_TEMP/api.p8"
+            echo -n "$AC_API_KEY_BASE64" | base64 --decode -o "$KEY_PATH"
+            ID=$(xcrun notarytool history \
+              --key "$KEY_PATH" \
+              --key-id "$AC_API_KEY_ID" \
+              --issuer "$AC_API_ISSUER_ID" \
+              --output-format json | \
+              python3 -c 'import json,sys; print(json.load(sys.stdin)["history"][0]["id"])')
+            rm "$KEY_PATH"
+            echo "Using most-recent submission ID: $ID"
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for notarization to finish
+        env:
+          AC_API_KEY_BASE64: ${{ secrets.AC_API_KEY_BASE64 }}
+          AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
+          AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
+          SUBMISSION_ID: ${{ steps.submission.outputs.id }}
+        run: |
+          KEY_PATH="$RUNNER_TEMP/api.p8"
+          echo -n "$AC_API_KEY_BASE64" | base64 --decode -o "$KEY_PATH"
+
+          xcrun notarytool wait "$SUBMISSION_ID" \
+            --key "$KEY_PATH" \
+            --key-id "$AC_API_KEY_ID" \
+            --issuer "$AC_API_ISSUER_ID" \
+            --timeout 2h
+
+          STATUS=$(xcrun notarytool info "$SUBMISSION_ID" \
+            --key "$KEY_PATH" \
+            --key-id "$AC_API_KEY_ID" \
+            --issuer "$AC_API_ISSUER_ID" \
+            --output-format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')
+
+          rm "$KEY_PATH"
+
+          echo "Notarization status: $STATUS"
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "Notarization did not succeed — aborting staple." >&2
+            exit 1
+          fi
+
+      - name: Download release DMG
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'LocalTalk.dmg' \
+            --output LocalTalk.dmg
+
+      - name: Staple ticket to DMG
+        run: |
+          xcrun stapler staple LocalTalk.dmg
+          xcrun stapler validate LocalTalk.dmg
+          spctl --assess --type open --context context:primary-signature -vv LocalTalk.dmg || true
+
+      - name: Replace release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          gh release upload "$TAG" LocalTalk.dmg \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+          echo "Stapled DMG uploaded to $TAG"

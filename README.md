@@ -20,7 +20,7 @@ The Whisper `small.en` model (~150 MB) downloads automatically on first launch a
 4. Grant **Accessibility** and **Microphone** permissions when prompted
 5. The mic icon appears in your menubar — you're ready
 
-> **Note:** The app is ad-hoc signed (not notarized). On first open, right-click → Open → Open to bypass Gatekeeper.
+The app is signed with a Developer ID and notarized by Apple, so it should open without Gatekeeper warnings.
 
 ## Build from source
 

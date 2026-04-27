@@ -58,27 +58,41 @@ jobs:
         run: make dmg
 
       - name: Submit DMG for notarization (fire-and-forget)
+        id: notarize
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           AC_API_KEY_BASE64: ${{ secrets.AC_API_KEY_BASE64 }}
           AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
           AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
         run: |
-          # Submit without --wait: the ticket attaches to the DMG's signature
-          # hash server-side, so Gatekeeper's online lookup works once Apple
-          # processes the submission. Stapling (skipped here) is only needed
-          # for offline first-opens — can be added back later as a separate
-          # workflow if required.
+          # Submit without --wait so we can publish the release immediately;
+          # Gatekeeper's online ticket lookup makes the DMG open cleanly once
+          # Apple processes the submission. The staple workflow polls for the
+          # ticket and re-uploads a stapled DMG (for offline first-opens).
           KEY_PATH="$RUNNER_TEMP/api.p8"
           echo -n "$AC_API_KEY_BASE64" | base64 --decode -o "$KEY_PATH"
 
-          xcrun notarytool submit LocalTalk.dmg \
+          SUBMIT_OUTPUT=$(xcrun notarytool submit LocalTalk.dmg \
             --key "$KEY_PATH" \
             --key-id "$AC_API_KEY_ID" \
             --issuer "$AC_API_ISSUER_ID" \
-            --no-wait
+            --no-wait \
+            --output-format json)
 
           rm "$KEY_PATH"
+
+          echo "$SUBMIT_OUTPUT"
+          SUBMISSION_ID=$(echo "$SUBMIT_OUTPUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          echo "submission-id=$SUBMISSION_ID" >> "$GITHUB_OUTPUT"
+          echo "$SUBMISSION_ID" > submission-id.txt
+
+      - name: Upload notarization submission ID
+        if: steps.notarize.outputs.submission-id != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: notarization
+          path: submission-id.txt
+          retention-days: 7
 
       - name: Clean up keychain
         if: always() && env.KEYCHAIN_PATH != ''
