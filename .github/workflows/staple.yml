@@ -36,17 +36,36 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Stapling release: $TAG"
 
-      - name: Download notarization submission ID artifact
+      - name: Check for notarization artifact (workflow_run only)
+        id: artifact_check
         if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          # CI only uploads the `notarization` artifact when it actually
+          # publishes a new release. If absent, this push didn't release —
+          # skip the rest of the workflow cleanly.
+          COUNT=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" \
+            --jq '[.artifacts[] | select(.name=="notarization")] | length')
+          if [ "$COUNT" = "0" ]; then
+            echo "No notarization artifact on CI run $RUN_ID — nothing to staple."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download notarization submission ID artifact
+        if: github.event_name == 'workflow_run' && steps.artifact_check.outputs.found == 'true'
         uses: actions/download-artifact@v4
         with:
           name: notarization
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
 
       - name: Resolve submission ID
         id: submission
+        if: github.event_name == 'workflow_dispatch' || steps.artifact_check.outputs.found == 'true'
         env:
           AC_API_KEY_BASE64: ${{ secrets.AC_API_KEY_BASE64 }}
           AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
@@ -56,7 +75,7 @@ jobs:
             ID=$(cat submission-id.txt)
             echo "Using submission ID from artifact: $ID"
           else
-            # Manual dispatch or missing artifact — pick most recent submission.
+            # Manual dispatch with no artifact — pick the most recent submission.
             KEY_PATH="$RUNNER_TEMP/api.p8"
             echo -n "$AC_API_KEY_BASE64" | base64 --decode -o "$KEY_PATH"
             ID=$(xcrun notarytool history \
@@ -71,6 +90,7 @@ jobs:
           echo "id=$ID" >> "$GITHUB_OUTPUT"
 
       - name: Wait for notarization to finish
+        if: steps.submission.outputs.id != ''
         env:
           AC_API_KEY_BASE64: ${{ secrets.AC_API_KEY_BASE64 }}
           AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
@@ -101,6 +121,7 @@ jobs:
           fi
 
       - name: Download release DMG
+        if: steps.submission.outputs.id != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}
@@ -111,12 +132,14 @@ jobs:
             --output LocalTalk.dmg
 
       - name: Staple ticket to DMG
+        if: steps.submission.outputs.id != ''
         run: |
           xcrun stapler staple LocalTalk.dmg
           xcrun stapler validate LocalTalk.dmg
           spctl --assess --type open --context context:primary-signature -vv LocalTalk.dmg || true
 
       - name: Replace release asset
+        if: steps.submission.outputs.id != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}

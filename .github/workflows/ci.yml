@@ -47,8 +47,22 @@ jobs:
           rm "$CERT_PATH"
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
 
-      - name: Build DMG (signed)
+      - name: Check whether a new release is needed
+        id: release_check
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          VERSION="v$(cat VERSION)"
+          if git rev-parse "$VERSION" >/dev/null 2>&1; then
+            echo "Tag $VERSION already exists — will skip notarize + release"
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag $VERSION does not exist — will notarize and release"
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build DMG (signed)
+        if: steps.release_check.outputs.needed == 'true'
         env:
           SIGNING_IDENTITY: "Developer ID Application: Evan Rusackas (${{ secrets.APPLE_TEAM_ID }})"
         run: make dmg
@@ -59,7 +73,7 @@ jobs:
 
       - name: Submit DMG for notarization (fire-and-forget)
         id: notarize
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: steps.release_check.outputs.needed == 'true'
         env:
           AC_API_KEY_BASE64: ${{ secrets.AC_API_KEY_BASE64 }}
           AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
@@ -99,15 +113,11 @@ jobs:
         run: security delete-keychain "$KEYCHAIN_PATH" || true
 
       - name: Tag and release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: steps.release_check.outputs.needed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.release_check.outputs.version }}
         run: |
-          VERSION="v$(cat VERSION)"
-          if git rev-parse "$VERSION" >/dev/null 2>&1; then
-            echo "Tag $VERSION already exists — skipping release"
-            exit 0
-          fi
           git tag "$VERSION"
           git push origin "$VERSION"
           gh release create "$VERSION" LocalTalk.dmg \
