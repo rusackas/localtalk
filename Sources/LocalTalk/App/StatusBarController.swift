@@ -26,10 +26,10 @@ class StatusBarController: NSObject {
     private var updateMenuItem: NSMenuItem!
     private var checkMenuItem: NSMenuItem!
 
-    private let checkAction: () async -> String?
+    private let checkAction: () -> Void
     private let openSettings: () -> Void
 
-    init(onCheckForUpdates: @escaping () async -> String?, onOpenSettings: @escaping () -> Void) {
+    init(onCheckForUpdates: @escaping () -> Void, onOpenSettings: @escaping () -> Void) {
         self.checkAction = onCheckForUpdates
         self.openSettings = onOpenSettings
         super.init()
@@ -92,28 +92,12 @@ class StatusBarController: NSObject {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
     }
 
-    @objc private func openReleasesPage() {
-        NSWorkspace.shared.open(UpdateChecker.releasesURL)
-    }
-
     @objc private func openSettingsPanel() {
         openSettings()
     }
 
     @objc private func checkForUpdates() {
-        checkMenuItem.title = "Checking…"
-        checkMenuItem.isEnabled = false
-        Task { @MainActor in
-            if let version = await checkAction() {
-                showUpdate(version: version)
-                NSWorkspace.shared.open(UpdateChecker.releasesURL)
-            } else {
-                checkMenuItem.title = "Up to date ✓"
-                try? await Task.sleep(for: .seconds(2))
-            }
-            checkMenuItem.title = "Check for Updates…"
-            checkMenuItem.isEnabled = true
-        }
+        checkAction()
     }
 
     private func setStatusLine(_ text: String?) {
@@ -146,7 +130,10 @@ class StatusBarController: NSObject {
 
         menu.addItem(.separator())
 
-        updateMenuItem = NSMenuItem(title: "", action: #selector(openReleasesPage), keyEquivalent: "")
+        // Clicking the "Update available" badge triggers the same Sparkle flow
+        // as "Check for Updates…" so the user is taken straight to the
+        // download/install dialog.
+        updateMenuItem = NSMenuItem(title: "", action: #selector(checkForUpdates), keyEquivalent: "")
         updateMenuItem.target = self
         updateMenuItem.isHidden = true
         menu.addItem(updateMenuItem)

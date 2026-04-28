@@ -20,7 +20,7 @@ The Whisper `small.en` model (~150 MB) downloads automatically on first launch a
 4. Grant **Accessibility** and **Microphone** permissions when prompted
 5. The mic icon appears in your menubar — you're ready
 
-The app is signed with a Developer ID and notarized by Apple, so it should open without Gatekeeper warnings.
+The app is signed with a Developer ID and notarized by Apple, so it should open without Gatekeeper warnings. Updates install automatically through Sparkle (verified with an EdDSA signature) — when a new version is available, you'll see a prompt with a "Install and Relaunch" button.
 
 ## Build from source
 

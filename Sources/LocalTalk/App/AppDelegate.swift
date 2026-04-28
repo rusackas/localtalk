@@ -14,9 +14,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
 
         statusBar = StatusBarController(
-            onCheckForUpdates: { await UpdateChecker.availableUpdate() },
+            onCheckForUpdates: { AppUpdater.shared.checkForUpdates() },
             onOpenSettings: { [weak self] in self?.settingsWindow.show() }
         )
+
+        AppUpdater.shared.onUpdateFound = { [weak self] version in
+            self?.statusBar.showUpdate(version: version)
+        }
 
         Task { @MainActor in
             await withCheckedContinuation { cont in
@@ -26,10 +30,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             await recorder.warmUp()
             startKeyMonitor()
             await loadModel()
-
-            if let version = await UpdateChecker.availableUpdate() {
-                statusBar.showUpdate(version: version)
-            }
         }
 
         settingsWindow.onTriggerChanged = { [weak self] newTrigger in
