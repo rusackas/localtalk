@@ -153,10 +153,15 @@ class SettingsWindowController: NSWindowController {
         resetBtn.bezelStyle = .inline
         stack.addArrangedSubview(resetBtn)
 
-        // Save
+        // Save (with version label on the left)
+        let versionLabel = NSTextField(labelWithString: "LocalTalk \(UpdateChecker.currentVersion)")
+        versionLabel.font = .systemFont(ofSize: 11)
+        versionLabel.textColor = .secondaryLabelColor
         let saveBtn = NSButton(title: "Save", target: self, action: #selector(save))
         saveBtn.keyEquivalent = "\r"
-        let saveRow = NSStackView(views: [NSView(), saveBtn])
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let saveRow = NSStackView(views: [versionLabel, spacer, saveBtn])
         saveRow.orientation = .horizontal
         saveRow.distribution = .fill
         saveRow.alignment = .centerY

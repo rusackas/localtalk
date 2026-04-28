@@ -1,7 +1,11 @@
 import Foundation
 
 struct UpdateChecker {
-    static let currentVersion = "1.1.0"
+    // Read from the bundle so we don't drift from the shipped version stamped
+    // into Info.plist by the build (Makefile sets CFBundleShortVersionString
+    // from the VERSION file).
+    static let currentVersion: String =
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0.0.0"
 
     private static let apiURL = URL(string: "https://api.github.com/repos/rusackas/localtalk/releases/latest")!
     static let releasesURL = URL(string: "https://github.com/rusackas/localtalk/releases")!
