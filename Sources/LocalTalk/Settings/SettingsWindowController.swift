@@ -154,7 +154,7 @@ class SettingsWindowController: NSWindowController {
         stack.addArrangedSubview(resetBtn)
 
         // Save (with version label on the left)
-        let versionLabel = NSTextField(labelWithString: "LocalTalk \(UpdateChecker.currentVersion)")
+        let versionLabel = NSTextField(labelWithString: "LocalTalk \(AppUpdater.currentVersion)")
         versionLabel.font = .systemFont(ofSize: 11)
         versionLabel.textColor = .secondaryLabelColor
         let saveBtn = NSButton(title: "Save", target: self, action: #selector(save))
