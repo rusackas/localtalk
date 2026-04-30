@@ -6,13 +6,14 @@ DMG_VOL = $(APP_NAME)
 DMG_TMP = /tmp/lt-tmp.dmg
 DMG_STAGING = /tmp/lt-staging
 ENTITLEMENTS = Resources/LocalTalk.entitlements
-# Source the framework directly from the canonical xcframework artifact. Going
-# through SwiftPM's local copy at $(BUILD_DIR)/Sparkle.framework can lose the
-# top-level symlinks (Headers, Modules, etc. → Versions/Current/…) when the
-# .build/ directory is restored from cache on CI runners; the resulting
-# "ambiguous bundle format" is rejected by Apple's notary even though local
-# codesign succeeds.
-SPARKLE_FRAMEWORK = .build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework
+# Source the framework's Versions/B directory directly. There are no symlinks
+# inside Versions/B, so plain cp -R reproduces it byte-perfectly across any
+# environment. We re-create the framework's top-level symlinks ourselves
+# (Headers/Modules/Sparkle/etc. → Versions/Current/…) because SwiftPM's
+# xcframework extraction on the macos-15 GitHub Actions runner replaces them
+# with deep file copies, which Apple's notary rejects as "ambiguous bundle
+# format" even though local codesign accepts the result.
+SPARKLE_VERSION_B = .build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework/Versions/B
 
 # Set SIGNING_IDENTITY to a Developer ID for release builds (triggers hardened
 # runtime + timestamp + entitlements). Defaults to ad-hoc signing for local dev.
@@ -47,25 +48,22 @@ bundle: icon build
 	/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $$(cat VERSION)" $(BUNDLE_DIR)/Contents/Info.plist
 	/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $$(cat VERSION)" $(BUNDLE_DIR)/Contents/Info.plist
 	cp Resources/AppIcon.icns $(BUNDLE_DIR)/Contents/Resources/AppIcon.icns
-	# Bundle Sparkle.framework. ditto preserves the symlinks (Versions/Current
-	# → B, etc.) that codesign requires to be intact. Re-sign every helper with
-	# our identity, deepest-first, so the embedded structure validates.
+	# Reconstruct Sparkle.framework from Versions/B. See SPARKLE_VERSION_B
+	# comment above for why we don't trust ditto here.
 	rm -rf "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework"
-	ditto "$(SPARKLE_FRAMEWORK)" "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework"
-	# SwiftPM's xcframework extraction on the macos-15 GitHub Actions runner
-	# loses the framework's top-level symlinks (Headers/Modules/Sparkle/etc. →
-	# Versions/Current/…) and replaces them with deep file copies. Apple's
-	# notary then flags the framework with "ambiguous bundle format" even
-	# though local codesign accepts it. Force the canonical layout: top-level
-	# entries are symlinks into Versions/Current/.
-	@FW="$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework"; \
-	for entry in Sparkle Autoupdate Updater.app Headers Modules PrivateHeaders Resources XPCServices; do \
-	  if [ -e "$$FW/$$entry" ] && [ ! -L "$$FW/$$entry" ]; then \
-	    rm -rf "$$FW/$$entry"; \
-	    ln -s "Versions/Current/$$entry" "$$FW/$$entry"; \
-	    echo "  fixed top-level symlink: $$entry"; \
-	  fi; \
-	done
+	mkdir -p "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/Versions"
+	cp -R "$(SPARKLE_VERSION_B)" "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/Versions/B"
+	ln -s B "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/Versions/Current"
+	ln -s Versions/Current/Sparkle "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/Sparkle"
+	ln -s Versions/Current/Autoupdate "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/Autoupdate"
+	ln -s Versions/Current/Updater.app "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/Updater.app"
+	ln -s Versions/Current/Headers "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/Headers"
+	ln -s Versions/Current/Modules "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/Modules"
+	ln -s Versions/Current/PrivateHeaders "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/PrivateHeaders"
+	ln -s Versions/Current/Resources "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/Resources"
+	ln -s Versions/Current/XPCServices "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/XPCServices"
+	@echo "Sparkle.framework structure (should show symlinks at top level):"
+	@ls -la "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/" | head -12
 	codesign $(SPARKLE_SIGN_FLAGS) "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc"
 	codesign $(SPARKLE_SIGN_FLAGS) "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc"
 	codesign $(SPARKLE_SIGN_FLAGS) "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
