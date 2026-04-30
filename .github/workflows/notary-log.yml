@@ -1,0 +1,28 @@
+name: Notary log
+
+on:
+  workflow_dispatch:
+    inputs:
+      submission_id:
+        description: "notarytool submission UUID"
+        required: true
+        type: string
+
+jobs:
+  log:
+    runs-on: macos-15
+    steps:
+      - name: Fetch notarization log
+        env:
+          AC_API_KEY_BASE64: ${{ secrets.AC_API_KEY_BASE64 }}
+          AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
+          AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
+          SUBMISSION_ID: ${{ github.event.inputs.submission_id }}
+        run: |
+          KEY_PATH="$RUNNER_TEMP/api.p8"
+          echo -n "$AC_API_KEY_BASE64" | base64 --decode -o "$KEY_PATH"
+          xcrun notarytool log "$SUBMISSION_ID" \
+            --key "$KEY_PATH" \
+            --key-id "$AC_API_KEY_ID" \
+            --issuer "$AC_API_ISSUER_ID"
+          rm "$KEY_PATH"
