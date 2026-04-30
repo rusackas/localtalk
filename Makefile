@@ -85,16 +85,22 @@ dmg: bundle
 	# Clean up any leftovers from a previous run
 	rm -rf "$(DMG_STAGING)" "$(DMG_TMP)" "$(DMG_NAME)"
 	hdiutil detach "/Volumes/$(DMG_VOL)" 2>/dev/null; true
-	# Staging folder: app + /Applications alias
+	# Staging folder: app + /Applications alias. Use ditto, not cp -r — on the
+	# macos-15 GH Actions runner, cp drops the framework's top-level symlinks
+	# (despite the man page) and Apple's notary then rejects the bundle.
 	mkdir -p "$(DMG_STAGING)"
-	cp -r "$(BUNDLE_DIR)" "$(DMG_STAGING)/$(APP_NAME).app"
+	ditto "$(BUNDLE_DIR)" "$(DMG_STAGING)/$(APP_NAME).app"
 	ln -s /Applications "$(DMG_STAGING)/Applications"
+	@echo "Framework after staging copy:"
+	@ls -la "$(DMG_STAGING)/$(APP_NAME).app/Contents/Frameworks/Sparkle.framework/" | head -12
 	# Create writable disk image from staging
 	hdiutil create -srcfolder "$(DMG_STAGING)" -volname "$(DMG_VOL)" \
 		-fs HFS+ -format UDRW -o "$(DMG_TMP)"
 	# Mount and arrange icons
 	hdiutil attach "$(DMG_TMP)" -mountpoint "/Volumes/$(DMG_VOL)" -noautoopen
 	sleep 2
+	@echo "Framework inside mounted DMG:"
+	@ls -la "/Volumes/$(DMG_VOL)/$(APP_NAME).app/Contents/Frameworks/Sparkle.framework/" | head -12
 	bash Scripts/arrange_dmg.sh "$(DMG_VOL)" "$(APP_NAME).app" || true
 	hdiutil detach "/Volumes/$(DMG_VOL)"
 	# Convert to compressed read-only DMG
