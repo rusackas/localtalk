@@ -18,7 +18,7 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>SUFeedURL</key>
-    <string>https://rusackas.github.io/localtalk/appcast.xml</string>
+    <string>https://rusackas.com/localtalk/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>oJ1ua/84Y11lVADpCVElEELciHnFCRMuwLJ1qhK8uz8=</string>
     <key>SUEnableAutomaticChecks</key>
