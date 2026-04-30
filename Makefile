@@ -6,15 +6,22 @@ DMG_VOL = $(APP_NAME)
 DMG_TMP = /tmp/lt-tmp.dmg
 DMG_STAGING = /tmp/lt-staging
 ENTITLEMENTS = Resources/LocalTalk.entitlements
+SPARKLE_FRAMEWORK = $(BUILD_DIR)/Sparkle.framework
 
 # Set SIGNING_IDENTITY to a Developer ID for release builds (triggers hardened
 # runtime + timestamp + entitlements). Defaults to ad-hoc signing for local dev.
 SIGNING_IDENTITY ?= -
 ifeq ($(SIGNING_IDENTITY),-)
 CODESIGN_FLAGS = --force --sign - --identifier com.localtalk.app
+SPARKLE_SIGN_FLAGS = --force --sign -
 else
 CODESIGN_FLAGS = --force --sign "$(SIGNING_IDENTITY)" --identifier com.localtalk.app \
                  --options runtime --entitlements $(ENTITLEMENTS) --timestamp
+# Sparkle's helpers must be re-signed with our identity (hardened runtime +
+# secure timestamp) so the parent app's signature stays valid. They keep their
+# own bundle identifiers (set by Sparkle), so no --identifier override here.
+SPARKLE_SIGN_FLAGS = --force --sign "$(SIGNING_IDENTITY)" \
+                     --options runtime --timestamp
 endif
 
 .PHONY: build bundle icon dmg clean run
@@ -28,10 +35,22 @@ icon:
 bundle: icon build
 	mkdir -p $(BUNDLE_DIR)/Contents/MacOS
 	mkdir -p $(BUNDLE_DIR)/Contents/Resources
+	mkdir -p $(BUNDLE_DIR)/Contents/Frameworks
 	cp $(BUILD_DIR)/$(APP_NAME) $(BUNDLE_DIR)/Contents/MacOS/$(APP_NAME)
 	cp Resources/Info.plist $(BUNDLE_DIR)/Contents/Info.plist
 	/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $$(cat VERSION)" $(BUNDLE_DIR)/Contents/Info.plist
+	/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $$(cat VERSION)" $(BUNDLE_DIR)/Contents/Info.plist
 	cp Resources/AppIcon.icns $(BUNDLE_DIR)/Contents/Resources/AppIcon.icns
+	# Bundle Sparkle.framework. ditto preserves the symlinks (Versions/Current
+	# → B, etc.) that codesign requires to be intact. Re-sign every helper with
+	# our identity, deepest-first, so the embedded structure validates.
+	rm -rf "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework"
+	ditto "$(SPARKLE_FRAMEWORK)" "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework"
+	codesign $(SPARKLE_SIGN_FLAGS) "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc"
+	codesign $(SPARKLE_SIGN_FLAGS) "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc"
+	codesign $(SPARKLE_SIGN_FLAGS) "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
+	codesign $(SPARKLE_SIGN_FLAGS) "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
+	codesign $(SPARKLE_SIGN_FLAGS) "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework"
 	# SwiftPM synthesizes a Bundle.module accessor that looks at
 	# Bundle.main.bundleURL.appendingPathComponent("<name>.bundle"), which for a .app
 	# resolves to LocalTalk.app/<name>.bundle — but codesign rejects anything at the bundle

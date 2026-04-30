@@ -12,9 +12,19 @@
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.1.0</string>
+    <string>1.3.0</string>
+    <key>CFBundleVersion</key>
+    <string>1.3.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>SUFeedURL</key>
+    <string>https://rusackas.com/localtalk/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>oJ1ua/84Y11lVADpCVElEELciHnFCRMuwLJ1qhK8uz8=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUEnableInstallerLauncherService</key>
+    <true/>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>LSUIElement</key>
