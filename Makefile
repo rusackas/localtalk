@@ -6,7 +6,13 @@ DMG_VOL = $(APP_NAME)
 DMG_TMP = /tmp/lt-tmp.dmg
 DMG_STAGING = /tmp/lt-staging
 ENTITLEMENTS = Resources/LocalTalk.entitlements
-SPARKLE_FRAMEWORK = $(BUILD_DIR)/Sparkle.framework
+# Source the framework directly from the canonical xcframework artifact. Going
+# through SwiftPM's local copy at $(BUILD_DIR)/Sparkle.framework can lose the
+# top-level symlinks (Headers, Modules, etc. → Versions/Current/…) when the
+# .build/ directory is restored from cache on CI runners; the resulting
+# "ambiguous bundle format" is rejected by Apple's notary even though local
+# codesign succeeds.
+SPARKLE_FRAMEWORK = .build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework
 
 # Set SIGNING_IDENTITY to a Developer ID for release builds (triggers hardened
 # runtime + timestamp + entitlements). Defaults to ad-hoc signing for local dev.
