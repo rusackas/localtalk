@@ -52,6 +52,20 @@ bundle: icon build
 	# our identity, deepest-first, so the embedded structure validates.
 	rm -rf "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework"
 	ditto "$(SPARKLE_FRAMEWORK)" "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework"
+	# SwiftPM's xcframework extraction on the macos-15 GitHub Actions runner
+	# loses the framework's top-level symlinks (Headers/Modules/Sparkle/etc. →
+	# Versions/Current/…) and replaces them with deep file copies. Apple's
+	# notary then flags the framework with "ambiguous bundle format" even
+	# though local codesign accepts it. Force the canonical layout: top-level
+	# entries are symlinks into Versions/Current/.
+	@FW="$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework"; \
+	for entry in Sparkle Autoupdate Updater.app Headers Modules PrivateHeaders Resources XPCServices; do \
+	  if [ -e "$$FW/$$entry" ] && [ ! -L "$$FW/$$entry" ]; then \
+	    rm -rf "$$FW/$$entry"; \
+	    ln -s "Versions/Current/$$entry" "$$FW/$$entry"; \
+	    echo "  fixed top-level symlink: $$entry"; \
+	  fi; \
+	done
 	codesign $(SPARKLE_SIGN_FLAGS) "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc"
 	codesign $(SPARKLE_SIGN_FLAGS) "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc"
 	codesign $(SPARKLE_SIGN_FLAGS) "$(BUNDLE_DIR)/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
