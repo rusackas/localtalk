@@ -6,6 +6,12 @@
     <description>Updates for LocalTalk</description>
     <language>en</language>
     <item>
+      <title>Version 1.3.5</title>
+      <sparkle:releaseNotesLink>https://github.com/rusackas/localtalk/releases/tag/v1.3.5</sparkle:releaseNotesLink>
+      <pubDate>Tue, 05 May 2026 22:58:57 +0000</pubDate>
+      <enclosure url="https://github.com/rusackas/localtalk/releases/download/v1.3.5/LocalTalk.dmg" sparkle:version="1.3.5" sparkle:shortVersionString="1.3.5" length="2792857" type="application/octet-stream" sparkle:edSignature="V5Cf3t8WbG1l0904XFAU2iMihM8H6u3gJ8/VjmjQK/MrkgPXIXMVeqJi0i8oUkqlt259Il6ijZsNfpdoAAJwAw==" />
+    </item>
+    <item>
       <title>Version 1.3.4</title>
       <sparkle:releaseNotesLink>https://github.com/rusackas/localtalk/releases/tag/v1.3.4</sparkle:releaseNotesLink>
       <pubDate>Thu, 30 Apr 2026 16:00:05 +0000</pubDate>
