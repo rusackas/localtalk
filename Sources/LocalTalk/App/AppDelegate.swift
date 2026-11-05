@@ -28,6 +28,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             await ensureAccessibility()
             await recorder.warmUp()
+            if !recorder.hasInputDevice {
+                // Separate task so the model keeps loading while the alert is up.
+                Task { @MainActor in self.showNoMicrophoneAlert() }
+            }
             startKeyMonitor()
             await loadModel()
         }
@@ -98,8 +102,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             recordingStartTime = Date()
             AudioFeedback.play()
             DispatchQueue.main.async { self.statusBar.setState(.recording) }
+        } catch MicrophoneRecorder.RecorderError.noInputDevice {
+            DispatchQueue.main.async {
+                self.statusBar.setState(.error("No microphone"))
+                self.showNoMicrophoneAlert()
+            }
         } catch {
             DispatchQueue.main.async { self.statusBar.setState(.error("Mic error")) }
+        }
+    }
+
+    private var isShowingNoMicAlert = false
+
+    private func showNoMicrophoneAlert() {
+        guard !isShowingNoMicAlert else { return }
+        isShowingNoMicAlert = true
+        defer { isShowingNoMicAlert = false }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "No microphone detected"
+        alert.informativeText = "LocalTalk needs an audio input to transcribe. Connect a microphone or headset, or choose an input device in System Settings → Sound."
+        alert.addButton(withTitle: "Open Sound Settings")
+        alert.addButton(withTitle: "OK")
+
+        // Accessory (menu bar) apps aren't frontmost, so bring the alert forward.
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn,
+           let url = URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension?input") {
+            NSWorkspace.shared.open(url)
         }
     }
 
