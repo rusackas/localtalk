@@ -59,7 +59,14 @@ class MicrophoneRecorder {
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: nativeFormat) { [weak self] buffer, _ in
             self?.convert(buffer, using: converter)
         }
-        if !engine.isRunning { try engine.start() }
+        if !engine.isRunning {
+            do {
+                try engine.start()
+            } catch {
+                inputNode.removeTap(onBus: 0)
+                throw error
+            }
+        }
         isRecording = true
     }
 

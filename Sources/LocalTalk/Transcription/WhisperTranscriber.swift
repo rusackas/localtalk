@@ -6,7 +6,11 @@ class WhisperTranscriber {
     private(set) var isReady = false
 
     func load(model: String = TranscriptionSettings.modelName) async throws {
-        let config = WhisperKitConfig(model: model)
+        // load: true is required. Without a modelFolder, WhisperKit's init only
+        // downloads the model and defers loading (CoreML compile + ANE
+        // specialization, which can take a while) to the first transcribe() call,
+        // which left the first dictation stuck in "processing".
+        let config = WhisperKitConfig(model: model, load: true)
         whisper = try await WhisperKit(config)
         isReady = true
     }

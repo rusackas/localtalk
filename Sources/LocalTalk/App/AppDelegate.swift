@@ -9,6 +9,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let injector = TextInjector()
     private lazy var settingsWindow = SettingsWindowController()
     private var recordingStartTime: Date?
+    // Transcriptions run one at a time, in order, so a dictation started while
+    // the previous one is still transcribing can't inject its text first or
+    // run WhisperKit concurrently.
+    private var transcriptionChain: Task<Void, Never>?
+    private var pendingTranscriptions = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -37,7 +42,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         settingsWindow.onTriggerChanged = { [weak self] newTrigger in
-            self?.keyMonitor.updateTrigger(newTrigger)
+            self?.keyMonitor?.updateTrigger(newTrigger)
         }
         settingsWindow.onTranscriptionChanged = { [weak self] in
             Task { @MainActor in await self?.loadModel() }
@@ -144,7 +149,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         AudioFeedback.play()
         DispatchQueue.main.async { self.statusBar.setState(.processing) }
 
-        Task { @MainActor in
+        pendingTranscriptions += 1
+        let previous = transcriptionChain
+        transcriptionChain = Task { @MainActor in
+            await previous?.value
             do {
                 let text = try await transcriber.transcribe(samples: samples)
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -153,7 +161,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     UsageStats.addCharacters(trimmed.count)
                 }
             } catch {}
-            statusBar.setState(.ready)
+            pendingTranscriptions -= 1
+            // Don't flip the icon back to "ready" under a recording in progress
+            // or while another transcription is still queued.
+            if pendingTranscriptions == 0 && !recorder.isRecording {
+                statusBar.setState(.ready)
+            }
         }
     }
 }

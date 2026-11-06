@@ -7,16 +7,16 @@ enum InsertionMode: String, CaseIterable, Codable {
     var displayName: String {
         switch self {
         case .paste: return "Paste"
-        case .type:  return "Type"
+        case .type:  return "Simulated typing"
         }
     }
 
     var explanation: String {
         switch self {
         case .paste:
-            return "Fast and works almost everywhere. Briefly touches the clipboard and may be blocked by password fields."
+            return "Inserts the transcript all at once via the clipboard (restored afterwards). Fast and works almost everywhere; may be blocked by password fields."
         case .type:
-            return "Types one character at a time. Slower but works in a few more fields. Can garble if you type at the same time."
+            return "Inserts the transcript as simulated keystrokes instead of pasting. Slower, but works in a few fields that block paste. Can garble if you type at the same time."
         }
     }
 }

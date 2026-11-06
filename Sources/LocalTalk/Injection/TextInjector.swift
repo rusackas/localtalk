@@ -10,20 +10,31 @@ class TextInjector {
         }
     }
 
-    // Paste via clipboard + Cmd+V. Saves and restores the previous clipboard.
+    // Paste via clipboard + Cmd+V. Saves and restores the previous clipboard,
+    // including non-text contents (images, files, rich text), which used to be
+    // wiped because only the plain-string flavor was saved.
     private func injectViaPaste(_ text: String) {
         let pasteboard = NSPasteboard.general
-        let previous = pasteboard.string(forType: .string)
+        let previousItems: [NSPasteboardItem] = (pasteboard.pasteboardItems ?? []).map { item in
+            let copy = NSPasteboardItem()
+            for type in item.types {
+                if let data = item.data(forType: type) { copy.setData(data, forType: type) }
+            }
+            return copy
+        }
 
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+        let ourChangeCount = pasteboard.changeCount
 
         postCmdV()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
+            // If something else was copied in the meantime, leave it alone.
+            guard pasteboard.changeCount == ourChangeCount else { return }
             pasteboard.clearContents()
-            if let previous {
-                pasteboard.setString(previous, forType: .string)
+            if !previousItems.isEmpty {
+                pasteboard.writeObjects(previousItems)
             }
         }
     }

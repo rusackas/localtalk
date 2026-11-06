@@ -101,16 +101,16 @@ private func keyMonitorCallback(
     event: CGEvent,
     userInfo: UnsafeMutableRawPointer?
 ) -> Unmanaged<CGEvent>? {
-    guard let userInfo else { return Unmanaged.passRetained(event) }
+    guard let userInfo else { return Unmanaged.passUnretained(event) }
     let monitor = Unmanaged<KeyMonitor>.fromOpaque(userInfo).takeUnretainedValue()
 
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
         if let tap = monitor.tap { CGEvent.tapEnable(tap: tap, enable: true) }
-        return Unmanaged.passRetained(event)
+        return Unmanaged.passUnretained(event)
     }
 
     if let result = monitor.handle(event: event, type: type) {
-        return Unmanaged.passRetained(result)
+        return Unmanaged.passUnretained(result)
     }
     return nil
 }
