@@ -1,12 +1,15 @@
 import AppKit
 import CoreGraphics
 
+@MainActor
 class TextInjector {
-    func inject(_ text: String) {
+    func inject(_ text: String) async {
         let transformed = OutputSettings.transform(text)
         switch OutputSettings.insertionMode {
         case .paste: injectViaPaste(transformed)
-        case .type:  injectViaTyping(transformed)
+        // Live mode types phrases itself as they're confirmed (see LiveDictation);
+        // anything routed through here in that mode is just typed.
+        case .type, .live: await type(transformed)
         }
     }
 
@@ -39,9 +42,15 @@ class TextInjector {
         }
     }
 
+    /// Gap between synthesized keystrokes. Some apps (Electron, some web editors)
+    /// drop or reorder characters when events arrive back-to-back. Async sleep
+    /// rather than usleep so the main thread (and the trigger-key event tap on
+    /// it) stays responsive while long text is typed.
+    private static let keystrokeInterval: Duration = .milliseconds(2)
+
     // Synthesize keystrokes so each character lands as if typed. Works in a few
     // fields that reject paste, but is slower and can interleave with user input.
-    private func injectViaTyping(_ text: String) {
+    func type(_ text: String) async {
         let source = CGEventSource(stateID: .combinedSessionState)
         let utf16 = Array(text.utf16)
         var i = 0
@@ -62,12 +71,19 @@ class TextInjector {
                   let up   = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
             else { continue }
 
+            // Live mode types while the trigger key (fn / Option / Control) is
+            // still held; don't let that modifier leak onto the typed characters.
+            down.flags = []
+            up.flags = []
             chunk.withUnsafeBufferPointer { buf in
                 down.keyboardSetUnicodeString(stringLength: buf.count, unicodeString: buf.baseAddress)
                 up.keyboardSetUnicodeString(stringLength: buf.count, unicodeString: buf.baseAddress)
             }
             down.post(tap: .cgAnnotatedSessionEventTap)
             up.post(tap: .cgAnnotatedSessionEventTap)
+            if i < utf16.count {
+                try? await Task.sleep(for: Self.keystrokeInterval)
+            }
         }
     }
 

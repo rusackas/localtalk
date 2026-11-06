@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBar: StatusBarController!
     private var keyMonitor: KeyMonitor!
@@ -14,6 +15,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // run WhisperKit concurrently.
     private var transcriptionChain: Task<Void, Never>?
     private var pendingTranscriptions = 0
+    private var liveDictation: LiveDictation?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -28,14 +30,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         Task { @MainActor in
-            await withCheckedContinuation { cont in
-                AVCaptureDevice.requestAccess(for: .audio) { _ in cont.resume() }
-            }
+            let micGranted = await AVCaptureDevice.requestAccess(for: .audio)
             await ensureAccessibility()
             await recorder.warmUp()
-            if !recorder.hasInputDevice {
-                // Separate task so the model keeps loading while the alert is up.
-                Task { @MainActor in self.showNoMicrophoneAlert() }
+            // Separate task so the model keeps loading while the alert is up.
+            if !micGranted {
+                Task { @MainActor in self.reportMicrophoneProblem(.permissionDenied) }
+            } else if !recorder.hasInputDevice {
+                Task { @MainActor in self.reportMicrophoneProblem(.noDevice) }
             }
             startKeyMonitor()
             await loadModel()
@@ -83,7 +85,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let downloadHint = Task { @MainActor in
             try? await Task.sleep(for: .seconds(4))
-            if !transcriber.isReady {
+            if !Task.isCancelled && !transcriber.isReady {
                 statusBar.setState(.loading("Downloading model (first run)…"))
             }
         }
@@ -91,7 +93,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             try await transcriber.load()
             downloadHint.cancel()
-            statusBar.setState(.ready)
+            setReadyUnlessBusy()
         } catch {
             downloadHint.cancel()
             statusBar.setState(.error("Model load failed"))
@@ -100,41 +102,126 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Recording
 
-    private func handleKeyDown() {
-        guard transcriber.isReady, !recorder.isRecording else { return }
-        do {
-            try recorder.start()
-            recordingStartTime = Date()
-            AudioFeedback.play()
-            DispatchQueue.main.async { self.statusBar.setState(.recording) }
-        } catch MicrophoneRecorder.RecorderError.noInputDevice {
-            DispatchQueue.main.async {
-                self.statusBar.setState(.error("No microphone"))
-                self.showNoMicrophoneAlert()
-            }
-        } catch {
-            DispatchQueue.main.async { self.statusBar.setState(.error("Mic error")) }
+    /// Shows the idle mic icon, unless something more specific should stay up: a
+    /// model (re)load, a recording in progress, or queued transcriptions.
+    /// An outstanding mic problem keeps the warning icon up instead of the mic.
+    private func setReadyUnlessBusy() {
+        guard transcriber.isReady, !recorder.isRecording, pendingTranscriptions == 0 else { return }
+        if let micProblem {
+            statusBar.setState(.error(micProblem.statusText))
+        } else {
+            statusBar.setState(.ready)
         }
     }
 
-    private var isShowingNoMicAlert = false
+    private func handleKeyDown() {
+        // Not ready = still loading a model; the key does nothing until the mic
+        // icon appears.
+        guard transcriber.isReady, !recorder.isRecording else { return }
 
-    private func showNoMicrophoneAlert() {
-        guard !isShowingNoMicAlert else { return }
-        isShowingNoMicAlert = true
-        defer { isShowingNoMicAlert = false }
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            break
+        case .notDetermined:
+            Task { _ = await AVCaptureDevice.requestAccess(for: .audio) }
+            return
+        default:
+            reportMicrophoneProblem(.permissionDenied)
+            return
+        }
+
+        do {
+            try recorder.start()
+            clearMicrophoneProblem()
+            recordingStartTime = Date()
+            AudioFeedback.play()
+            statusBar.setState(.recording)
+            if OutputSettings.insertionMode == .live {
+                let live = LiveDictation(recorder: recorder, transcriber: transcriber, injector: injector)
+                live.start(after: transcriptionChain)
+                liveDictation = live
+            }
+        } catch MicrophoneRecorder.RecorderError.noInputDevice {
+            reportMicrophoneProblem(.noDevice)
+        } catch {
+            // One-off failure (e.g. the device vanished mid-start). Flash the
+            // warning, then go back to ready; the next key press retries.
+            statusBar.setState(.error("Mic error"))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                MainActor.assumeIsolated { self?.setReadyUnlessBusy() }
+            }
+        }
+    }
+
+    private enum MicrophoneProblem {
+        case noDevice
+        case permissionDenied
+
+        var statusText: String {
+            switch self {
+            case .noDevice: return "No microphone"
+            case .permissionDenied: return "Microphone access denied"
+            }
+        }
+    }
+
+    private var micProblem: MicrophoneProblem?
+    private var micRecoveryTimer: Timer?
+
+    /// Shows the warning icon and alert, then polls until the problem goes away
+    /// (mic plugged in / access granted) so the icon doesn't stay stuck on the
+    /// warning until the next dictation.
+    private func reportMicrophoneProblem(_ problem: MicrophoneProblem) {
+        micProblem = problem
+        setReadyUnlessBusy()  // no-op while the model is still loading
+        if micRecoveryTimer == nil {
+            micRecoveryTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.checkMicrophoneRecovered() }
+            }
+        }
+        showMicrophoneAlert(problem)
+    }
+
+    private func checkMicrophoneRecovered() {
+        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized,
+              recorder.hasInputDevice else { return }
+        clearMicrophoneProblem()
+        setReadyUnlessBusy()
+    }
+
+    private func clearMicrophoneProblem() {
+        micProblem = nil
+        micRecoveryTimer?.invalidate()
+        micRecoveryTimer = nil
+    }
+
+    private var isShowingMicAlert = false
+
+    private func showMicrophoneAlert(_ problem: MicrophoneProblem) {
+        guard !isShowingMicAlert else { return }
+        isShowingMicAlert = true
+        defer { isShowingMicAlert = false }
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "No microphone detected"
-        alert.informativeText = "LocalTalk needs an audio input to transcribe. Connect a microphone or headset, or choose an input device in System Settings → Sound."
-        alert.addButton(withTitle: "Open Sound Settings")
+        let settingsURL: String
+        switch problem {
+        case .noDevice:
+            alert.messageText = "No microphone detected"
+            alert.informativeText = "LocalTalk needs an audio input to transcribe. Connect a microphone or headset, or choose an input device in System Settings → Sound."
+            alert.addButton(withTitle: "Open Sound Settings")
+            settingsURL = "x-apple.systempreferences:com.apple.Sound-Settings.extension?input"
+        case .permissionDenied:
+            alert.messageText = "Microphone access is turned off"
+            alert.informativeText = "LocalTalk can't hear you without microphone access. Turn on LocalTalk in System Settings → Privacy & Security → Microphone. You may need to quit and reopen LocalTalk afterwards."
+            alert.addButton(withTitle: "Open Privacy Settings")
+            settingsURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+        }
         alert.addButton(withTitle: "OK")
 
         // Accessory (menu bar) apps aren't frontmost, so bring the alert forward.
         NSApp.activate(ignoringOtherApps: true)
-        if alert.runModal() == .alertFirstButtonReturn,
-           let url = URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension?input") {
+        if alert.runModal() == .alertFirstButtonReturn, let url = URL(string: settingsURL) {
             NSWorkspace.shared.open(url)
         }
     }
@@ -147,26 +234,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let samples = recorder.stop()
         AudioFeedback.play()
-        DispatchQueue.main.async { self.statusBar.setState(.processing) }
+        statusBar.setState(.processing)
+
+        let live = liveDictation
+        liveDictation = nil
 
         pendingTranscriptions += 1
         let previous = transcriptionChain
         transcriptionChain = Task { @MainActor in
             await previous?.value
-            do {
-                let text = try await transcriber.transcribe(samples: samples)
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    injector.inject(trimmed)
-                    UsageStats.addCharacters(trimmed.count)
-                }
-            } catch {}
-            pendingTranscriptions -= 1
-            // Don't flip the icon back to "ready" under a recording in progress
-            // or while another transcription is still queued.
-            if pendingTranscriptions == 0 && !recorder.isRecording {
-                statusBar.setState(.ready)
+            if let live {
+                let typed = await live.finish(finalSamples: samples)
+                UsageStats.addCharacters(typed.count)
+            } else {
+                do {
+                    let text = try await transcriber.transcribe(samples: samples)
+                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        await injector.inject(trimmed)
+                        UsageStats.addCharacters(trimmed.count)
+                    }
+                } catch {}
             }
+            pendingTranscriptions -= 1
+            setReadyUnlessBusy()
         }
     }
 }

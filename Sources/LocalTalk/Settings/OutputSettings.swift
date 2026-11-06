@@ -3,11 +3,13 @@ import Foundation
 enum InsertionMode: String, CaseIterable, Codable {
     case paste
     case type
+    case live
 
     var displayName: String {
         switch self {
         case .paste: return "Paste"
         case .type:  return "Simulated typing"
+        case .live:  return "Live (types as you speak)"
         }
     }
 
@@ -17,6 +19,8 @@ enum InsertionMode: String, CaseIterable, Codable {
             return "Inserts the transcript all at once via the clipboard (restored afterwards). Fast and works almost everywhere; may be blocked by password fields."
         case .type:
             return "Inserts the transcript as simulated keystrokes instead of pasting. Slower, but works in a few fields that block paste. Can garble if you type at the same time."
+        case .live:
+            return "Types each phrase as soon as Whisper is confident in it, while you're still holding the key; the rest lands when you let go. Text arrives roughly a phrase behind your voice. Uses more CPU, so it works best with the Tiny or Base model."
         }
     }
 }
@@ -46,17 +50,22 @@ enum OutputSettings {
     }
 
     static func transform(_ text: String) -> String {
-        var result = text
-        if autoCapitalize, let first = result.first, first.isLetter {
-            result = first.uppercased() + result.dropFirst()
-        }
+        var result = capitalizingFirst(text)
         if addTrailingPeriod {
             let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let last = trimmed.last,
-               !".!?,;:".contains(last) {
-                result = trimmed + "."
-            }
+            if needsTrailingPeriod(trimmed) { result = trimmed + "." }
         }
         return result
+    }
+
+    // Split out so live mode can apply them to the first and last phrase only.
+    static func capitalizingFirst(_ text: String) -> String {
+        guard autoCapitalize, let first = text.first, first.isLetter else { return text }
+        return first.uppercased() + text.dropFirst()
+    }
+
+    static func needsTrailingPeriod(_ text: String) -> Bool {
+        guard addTrailingPeriod, let last = text.last(where: { !$0.isWhitespace }) else { return false }
+        return !".!?,;:".contains(last)
     }
 }

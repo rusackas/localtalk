@@ -8,9 +8,9 @@ Hold a key, speak, release — your words appear wherever the cursor is. No clou
 
 - **Hold trigger key** → microphone starts recording (in memory, no files written to disk)
 - **Release** → [WhisperKit](https://github.com/argmaxinc/WhisperKit) transcribes on-device
-- Transcribed text is typed at your cursor via the clipboard
+- The transcript is inserted at your cursor, by pasting (default), simulated typing, or live as you speak (see [Output modes](#output-modes))
 
-The Whisper `small.en` model (~150 MB) downloads automatically on first launch and is cached locally.
+The Whisper model (Small by default; English-only variant when the language is English) downloads automatically on first launch and is cached locally. The mic icon appears once it's loaded; the trigger key does nothing until then.
 
 ## Quick start (pre-built)
 
@@ -43,8 +43,19 @@ make dmg        # produces LocalTalk.dmg
 Click the menubar icon → **Settings…** (or press ⌘,) to:
 
 - **Change trigger key** — default is fn/Globe; also supports Right Option (⌥) or Right Control (⌃)
+- **Launch at login**, and an optional **sound** on start/stop
+- **Model** (Tiny, Base, Small, Medium) and **language** (or auto-detect). Switching downloads the new model on first use.
+- **Output mode** (see below), plus optional **capitalize first letter** and **add trailing period**
 - **View usage stats** — total time recorded and characters typed
 - **Reset stats** — clears the counters
+
+### Output modes
+
+| Mode | What it does |
+|---|---|
+| **Paste** (default) | Inserts the whole transcript at once via the clipboard after you release the key. Your previous clipboard contents (including images and files) are restored afterwards. Fast and works almost everywhere. |
+| **Simulated typing** | Same timing as Paste, but inserts the transcript as keystrokes. Slower; useful in the few fields that block paste. |
+| **Live (types as you speak)** | Types each phrase while you're still holding the key, as soon as Whisper is confident in it; the rest lands when you release. Text trails your voice by about a phrase and is never revised once typed. Uses more CPU, so it works best with the Tiny or Base model. |
 
 ## Permissions
 
@@ -53,7 +64,7 @@ Click the menubar icon → **Settings…** (or press ⌘,) to:
 | **Accessibility** | Detect the trigger key and type text at the cursor |
 | **Microphone** | Record your voice while the trigger key is held |
 
-Both are requested on first launch. If you accidentally deny one, open **System Settings → Privacy & Security** to re-enable.
+Both are requested on first launch. If microphone access is denied or no microphone is connected, LocalTalk shows an alert with a shortcut to the right System Settings pane, and the warning icon clears on its own once it's fixed.
 
 ## Menubar icons
 
@@ -63,11 +74,11 @@ Both are requested on first launch. If you accidentally deny one, open **System 
 | Mic | Ready |
 | Mic (red, filled) | Recording |
 | Waveform (orange) | Transcribing |
-| Warning triangle | Error — check Accessibility/Mic permissions |
+| Warning triangle | Needs attention: Accessibility permission, microphone access, no microphone, or the model failed to load (click the icon for details) |
 
 ## Notes
 
 - Suppresses the trigger key so macOS Dictation / Globe menu doesn't interfere
 - Audio is captured in memory — no temporary files are written to disk
-- Clipboard is saved and restored after each injection
-- Works in any app that supports paste (text editors, terminals, browsers, messaging apps, etc.)
+- In Paste mode the clipboard is saved and restored after each insertion
+- Works in any app that accepts paste or typing (text editors, terminals, browsers, messaging apps, etc.)

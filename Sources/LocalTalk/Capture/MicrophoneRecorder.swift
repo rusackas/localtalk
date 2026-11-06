@@ -3,7 +3,10 @@ import AVFoundation
 class MicrophoneRecorder {
     private var engine = AVAudioEngine()
     private var converter: AVAudioConverter?
+    // Appended on the audio render thread, read from the main thread (stop() and
+    // live-mode snapshots), so guard it.
     private var samples: [Float] = []
+    private let samplesLock = NSLock()
     private(set) var isRecording = false
 
     private let targetFormat = AVAudioFormat(
@@ -49,7 +52,7 @@ class MicrophoneRecorder {
     }
 
     func start() throws {
-        samples = []
+        samplesLock.withLock { samples = [] }
         guard refreshInputNodeIfNeeded() else { throw RecorderError.noInputDevice }
         let inputNode = engine.inputNode
         let nativeFormat = inputNode.outputFormat(forBus: 0)
@@ -74,7 +77,13 @@ class MicrophoneRecorder {
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         isRecording = false
-        return samples
+        return samplesLock.withLock { samples }
+    }
+
+    /// The audio captured so far in the current recording (16 kHz mono), for
+    /// live transcription while the key is still held.
+    func snapshot() -> [Float] {
+        samplesLock.withLock { samples }
     }
 
     // An AVAudioEngine's input node stays bound to whatever device was the default
@@ -118,6 +127,7 @@ class MicrophoneRecorder {
 
         guard status != .error,
               let channelData = outputBuffer.floatChannelData?[0] else { return }
-        samples.append(contentsOf: UnsafeBufferPointer(start: channelData, count: Int(outputBuffer.frameLength)))
+        let chunk = UnsafeBufferPointer(start: channelData, count: Int(outputBuffer.frameLength))
+        samplesLock.withLock { samples.append(contentsOf: chunk) }
     }
 }

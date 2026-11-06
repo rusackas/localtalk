@@ -3,3 +3,10 @@ build/
 *.o
 *.d
 .DS_Store
+
+# Secrets: Sparkle EdDSA private key (signs update feeds). Never commit.
+sparkle_priv.key
+*.key
+
+# Local Claude Code settings
+.claude/
