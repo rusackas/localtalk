@@ -70,6 +70,10 @@ enum TranscriptionSettings {
     // English-only variants are faster and more accurate for English. Any other
     // language (including auto-detect) uses the multilingual variant.
     static var modelName: String {
-        language == .en ? "\(modelSize.rawValue).en" : modelSize.rawValue
+        modelName(size: modelSize, language: language)
+    }
+
+    static func modelName(size: ModelSize, language: Language) -> String {
+        language == .en ? "\(size.rawValue).en" : size.rawValue
     }
 }

@@ -38,6 +38,14 @@ Or build a distributable DMG:
 make dmg        # produces LocalTalk.dmg
 ```
 
+Run the tests (Swift Testing; also run by CI before every release):
+
+```bash
+make test
+```
+
+The app icon is drawn in code by `Scripts/render_icon.swift`; run `make render-icon` after changing it.
+
 ## Settings
 
 Click the menubar icon → **Settings…** (or press ⌘,) to:
@@ -55,7 +63,9 @@ Click the menubar icon → **Settings…** (or press ⌘,) to:
 |---|---|
 | **Paste** (default) | Inserts the whole transcript at once via the clipboard after you release the key. Your previous clipboard contents (including images and files) are restored afterwards. Fast and works almost everywhere. |
 | **Simulated typing** | Same timing as Paste, but inserts the transcript as keystrokes. Slower; useful in the few fields that block paste. |
-| **Live (types as you speak)** | Types each phrase while you're still holding the key, as soon as Whisper is confident in it; the rest lands when you release. Text trails your voice by about a phrase and is never revised once typed. Uses more CPU, so it works best with the Tiny or Base model. |
+| **Live (types as you speak)** | Types each word while you're still holding the key, once two consecutive Whisper passes agree on it; the rest lands when you release. Text trails your voice by a second or two and is never revised once typed. Uses more CPU, so it works best with the Tiny or Base model. |
+
+**Shift for a one-off live dictation:** in Paste or Simulated typing mode, hold Shift as you press the trigger key (e.g. Shift+fn) to use Live mode for just that dictation. You can let go of Shift once recording starts.
 
 ## Permissions
 

@@ -26,6 +26,11 @@ let package = Package(
                     "-Xlinker", "@executable_path/../Frameworks"
                 ])
             ]
-        )
+        ),
+        .testTarget(
+            name: "LocalTalkTests",
+            dependencies: ["LocalTalk"],
+            path: "Tests/LocalTalkTests"
+        ),
     ]
 )

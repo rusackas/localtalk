@@ -52,21 +52,8 @@ class TextInjector {
     // fields that reject paste, but is slower and can interleave with user input.
     func type(_ text: String) async {
         let source = CGEventSource(stateID: .combinedSessionState)
-        let utf16 = Array(text.utf16)
-        var i = 0
-        while i < utf16.count {
-            // Surrogate pairs must be posted together so emoji/non-BMP render correctly.
-            let unit = utf16[i]
-            let isHighSurrogate = unit >= 0xD800 && unit <= 0xDBFF
-            let chunk: [UniChar]
-            if isHighSurrogate, i + 1 < utf16.count {
-                chunk = [unit, utf16[i + 1]]
-                i += 2
-            } else {
-                chunk = [unit]
-                i += 1
-            }
-
+        let chunks = Self.keystrokeChunks(text)
+        for (index, chunk) in chunks.enumerated() {
             guard let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
                   let up   = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
             else { continue }
@@ -81,10 +68,30 @@ class TextInjector {
             }
             down.post(tap: .cgAnnotatedSessionEventTap)
             up.post(tap: .cgAnnotatedSessionEventTap)
-            if i < utf16.count {
+            if index < chunks.count - 1 {
                 try? await Task.sleep(for: Self.keystrokeInterval)
             }
         }
+    }
+
+    /// Splits text into the UTF-16 units to post per keystroke. Surrogate pairs
+    /// (emoji, other non-BMP characters) must be posted together or they render
+    /// as garbage.
+    nonisolated static func keystrokeChunks(_ text: String) -> [[UniChar]] {
+        let utf16 = Array(text.utf16)
+        var chunks: [[UniChar]] = []
+        var i = 0
+        while i < utf16.count {
+            let unit = utf16[i]
+            if UTF16.isLeadSurrogate(unit), i + 1 < utf16.count, UTF16.isTrailSurrogate(utf16[i + 1]) {
+                chunks.append([unit, utf16[i + 1]])
+                i += 2
+            } else {
+                chunks.append([unit])
+                i += 1
+            }
+        }
+        return chunks
     }
 
     private func postCmdV() {

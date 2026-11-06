@@ -24,6 +24,10 @@ jobs:
           key: ${{ runner.os }}-spm-${{ hashFiles('Package.resolved') }}
           restore-keys: ${{ runner.os }}-spm-
 
+      # Runs before signing/notarizing so a failing test blocks the release.
+      - name: Run tests
+        run: swift test
+
       - name: Import signing certificate
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:

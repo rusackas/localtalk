@@ -20,16 +20,18 @@ enum UsageStats {
         UserDefaults.standard.removeObject(forKey: charsKey)
     }
 
-    static var formattedDuration: String {
-        let t = Int(totalSeconds)
+    static var formattedDuration: String { formatDuration(totalSeconds) }
+    static var formattedChars: String { formatCount(totalChars) }
+
+    static func formatDuration(_ seconds: Double) -> String {
+        let t = Int(seconds)
         let h = t / 3600, m = (t % 3600) / 60, s = t % 60
         if h > 0 { return "\(h)h \(m)m \(s)s" }
         if m > 0 { return "\(m)m \(s)s" }
         return "\(s)s"
     }
 
-    static var formattedChars: String {
-        let n = totalChars
+    static func formatCount(_ n: Int) -> String {
         if n >= 1_000_000 { return String(format: "%.1fM", Double(n) / 1_000_000) }
         if n >= 1_000     { return String(format: "%.1fK", Double(n) / 1_000) }
         return "\(n)"

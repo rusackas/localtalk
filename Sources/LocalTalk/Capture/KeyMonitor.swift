@@ -60,7 +60,8 @@ class KeyMonitor {
         trigger = newTrigger
     }
 
-    fileprivate func handle(event: CGEvent, type: CGEventType) -> CGEvent? {
+    /// Returns nil to swallow the event (it was the trigger), or the event to pass it on.
+    func handle(event: CGEvent, type: CGEventType) -> CGEvent? {
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
 
         switch trigger.mode {

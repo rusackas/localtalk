@@ -136,7 +136,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             recordingStartTime = Date()
             AudioFeedback.play()
             statusBar.setState(.recording)
-            if OutputSettings.insertionMode == .live {
+            if Self.wantsLive(mode: OutputSettings.insertionMode,
+                              shiftHeld: NSEvent.modifierFlags.contains(.shift),
+                              trigger: TriggerKey.load()) {
                 let live = LiveDictation(recorder: recorder, transcriber: transcriber, injector: injector)
                 live.start(after: transcriptionChain)
                 liveDictation = live
@@ -224,6 +226,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if alert.runModal() == .alertFirstButtonReturn, let url = URL(string: settingsURL) {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    /// Live mode is used when it's the chosen output mode, or for this one
+    /// dictation when Shift is held as the trigger key goes down. (Not when
+    /// the trigger itself is a Shift combo, or every dictation would be live.)
+    static func wantsLive(mode: InsertionMode, shiftHeld: Bool, trigger: TriggerKey) -> Bool {
+        if mode == .live { return true }
+        let triggerUsesShift = CGEventFlags(rawValue: trigger.flagsValue).contains(.maskShift)
+        return shiftHeld && !triggerUsesShift
     }
 
     private func handleKeyUp() {

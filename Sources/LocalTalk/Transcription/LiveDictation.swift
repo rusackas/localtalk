@@ -1,15 +1,72 @@
 import Foundation
 
-/// "Live" insertion mode: while the trigger key is held, repeatedly
-/// re-transcribe the not-yet-confirmed tail of the recording and type each
-/// phrase once Whisper has moved past it.
+/// The pure bookkeeping behind live mode: which words are settled enough to
+/// type, and the exact text to type for each, given what's been typed already.
+/// Kept free of audio/Whisper/typing so it can be unit-tested.
 ///
-/// Whisper isn't a streaming model, so this follows the same approach as
-/// WhisperKit's AudioStreamTranscriber: every pass transcribes the audio after
-/// the last confirmed point, and every segment except the trailing one is
-/// treated as settled (Whisper only starts a new segment once it's done with the
-/// previous one). The trailing segment may still change, so it isn't typed until
-/// a later pass confirms it or the key is released. Nothing already typed is ever
+/// Uses "local agreement": a word is settled once two consecutive passes over
+/// the same audio agree on it (same text, same position after the last typed
+/// word). Whisper usually returns one segment for a whole continuous sentence,
+/// so waiting for segment boundaries would mean nothing types until the key is
+/// released; agreement on words keeps typing a word or two behind speech.
+struct LiveTranscript {
+    typealias Word = WhisperTranscriber.Word
+
+    /// End time (s) of the last word that has been typed.
+    private(set) var confirmedEnd: Float = 0
+    /// Everything emitted so far, exactly as typed.
+    private(set) var typedText = ""
+    /// The previous pass's not-yet-typed words, to agree against.
+    private var hypothesis: [Word] = []
+
+    static let overlapTolerance: Float = 0.1
+
+    /// Accepts the words from a transcription pass and returns the strings to
+    /// type, in order. Interim passes type only words the previous pass agreed
+    /// on; the final pass (key released) takes everything.
+    mutating func accept(_ words: [Word], final: Bool, autoCapitalize: Bool) -> [String] {
+        // Ignore words re-reported from audio that was already typed (passes
+        // include earlier audio as context). Timestamps drift a little between
+        // passes, so a word counts as new only if it's mostly after the typed
+        // audio and doesn't start well inside it.
+        let fresh = words.filter {
+            ($0.start + $0.end) / 2 > confirmedEnd && $0.start >= confirmedEnd - Self.overlapTolerance
+        }
+
+        let settled: ArraySlice<Word>
+        if final {
+            settled = fresh[...]
+            hypothesis = []
+        } else {
+            let agreed = zip(fresh, hypothesis).prefix { $0.text == $1.text }.count
+            settled = fresh.prefix(agreed)
+            hypothesis = Array(fresh.dropFirst(agreed))
+        }
+
+        var pieces: [String] = []
+        for word in settled {
+            confirmedEnd = max(confirmedEnd, word.end)
+            let piece = typedText.isEmpty
+                ? OutputSettings.capitalizingFirst(word.text, enabled: autoCapitalize)
+                : " " + word.text
+            typedText += piece
+            pieces.append(piece)
+        }
+        return pieces
+    }
+
+    /// The closing punctuation to type once dictation ends, if any.
+    mutating func finishingPunctuation(addTrailingPeriod: Bool) -> String? {
+        guard OutputSettings.needsTrailingPeriod(typedText, enabled: addTrailingPeriod) else { return nil }
+        typedText += "."
+        return "."
+    }
+}
+
+/// "Live" insertion mode: while the trigger key is held, repeatedly
+/// re-transcribe the not-yet-typed tail of the recording and type each word
+/// once two passes agree on it (see LiveTranscript). Whisper isn't a streaming
+/// model, so this is the usual way to stream it. Nothing already typed is ever
 /// revised, which keeps this safe in any app.
 ///
 /// We drive our own MicrophoneRecorder rather than AudioStreamTranscriber so the
@@ -22,14 +79,18 @@ final class LiveDictation {
 
     private var loop: Task<Void, Never>?
     private var stopping = false
-    private var lastConfirmedEnd: Float = 0
     private var lastTranscribedCount = 0
-    private(set) var typedText = ""
+    private var transcript = LiveTranscript()
 
     /// Only re-transcribe once at least this much new audio has arrived.
-    private static let minNewSamples = 16_000  // 1 s at 16 kHz
-    /// Trailing segments held back as still-provisional on each pass.
-    private static let unconfirmedTail = 1
+    private static let minNewSamples = 8_000  // 0.5 s at 16 kHz
+    /// Seconds of already-typed audio to re-feed Whisper as context, so the
+    /// untyped tail is heard mid-sentence rather than as a fresh utterance
+    /// (which would capitalize its first word). Whisper pads every pass to a
+    /// 30 s window anyway, so this costs little; repeated words are filtered.
+    private static let contextSeconds: Float = 8
+
+    private var passStart: Float { max(0, transcript.confirmedEnd - Self.contextSeconds) }
 
     init(recorder: MicrophoneRecorder, transcriber: WhisperTranscriber, injector: TextInjector) {
         self.recorder = recorder
@@ -52,17 +113,16 @@ final class LiveDictation {
         stopping = true
         await loop?.value
 
-        if let segments = try? await transcriber.transcribeSegments(samples: finalSamples, from: lastConfirmedEnd) {
-            for segment in segments where segment.end > lastConfirmedEnd {
-                await emit(segment.text)
-                lastConfirmedEnd = segment.end
-            }
+        if let words = try? await transcriber.transcribeWords(
+            samples: finalSamples, from: passStart
+        ) {
+            await type(transcript.accept(words, final: true,
+                                         autoCapitalize: OutputSettings.autoCapitalize))
         }
-        if OutputSettings.needsTrailingPeriod(typedText) {
-            await injector.type(".")
-            typedText += "."
+        if let period = transcript.finishingPunctuation(addTrailingPeriod: OutputSettings.addTrailingPeriod) {
+            await injector.type(period)
         }
-        return typedText
+        return transcript.typedText
     }
 
     private func run() async {
@@ -74,25 +134,18 @@ final class LiveDictation {
             }
             lastTranscribedCount = snapshot.count
 
-            guard let segments = try? await transcriber.transcribeSegments(
-                samples: snapshot, from: lastConfirmedEnd
+            guard let words = try? await transcriber.transcribeWords(
+                samples: snapshot, from: passStart
             ) else { continue }
             // Key released mid-pass: finish() redoes this tail with the full audio.
             if stopping { break }
 
-            guard segments.count > Self.unconfirmedTail else { continue }
-            for segment in segments.dropLast(Self.unconfirmedTail) where segment.end > lastConfirmedEnd {
-                await emit(segment.text)
-                lastConfirmedEnd = segment.end
-            }
+            await type(transcript.accept(words, final: false,
+                                         autoCapitalize: OutputSettings.autoCapitalize))
         }
     }
 
-    private func emit(_ text: String) async {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        let piece = typedText.isEmpty ? OutputSettings.capitalizingFirst(trimmed) : " " + trimmed
-        await injector.type(piece)
-        typedText += piece
+    private func type(_ pieces: [String]) async {
+        for piece in pieces { await injector.type(piece) }
     }
 }

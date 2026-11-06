@@ -31,10 +31,19 @@ SPARKLE_SIGN_FLAGS = --force --sign "$(SIGNING_IDENTITY)" \
                      --options runtime --timestamp
 endif
 
-.PHONY: build bundle icon dmg clean run
+.PHONY: build test bundle icon render-icon dmg clean run
 
 build:
 	swift build -c release
+
+test:
+	swift test
+
+# Re-render the icon master from code (Scripts/render_icon.swift), then rebuild
+# the .icns. Only needed when changing the design; `icon` alone reuses the PNG.
+render-icon:
+	swift Scripts/render_icon.swift
+	swift Scripts/make_icon.swift
 
 icon:
 	swift Scripts/make_icon.swift

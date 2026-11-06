@@ -106,16 +106,25 @@ class MicrophoneRecorder {
         return converter
     }
 
-    private static func isUsable(_ format: AVAudioFormat) -> Bool {
+    static func isUsable(_ format: AVAudioFormat) -> Bool {
         format.sampleRate > 0 && format.channelCount > 0
     }
 
     private func convert(_ inputBuffer: AVAudioPCMBuffer, using converter: AVAudioConverter) {
+        let converted = Self.resample(inputBuffer, using: converter, to: targetFormat)
+        guard !converted.isEmpty else { return }
+        samplesLock.withLock { samples.append(contentsOf: converted) }
+    }
+
+    /// Converts one captured buffer (device rate/channels) to the target format
+    /// (16 kHz mono float) and returns the samples.
+    static func resample(_ inputBuffer: AVAudioPCMBuffer, using converter: AVAudioConverter,
+                         to targetFormat: AVAudioFormat) -> [Float] {
         let ratio = targetFormat.sampleRate / inputBuffer.format.sampleRate
         let outputFrames = AVAudioFrameCount(Double(inputBuffer.frameLength) * ratio)
         guard outputFrames > 0,
               let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outputFrames)
-        else { return }
+        else { return [] }
 
         var consumed = false
         let status = converter.convert(to: outputBuffer, error: nil) { _, outStatus in
@@ -126,8 +135,7 @@ class MicrophoneRecorder {
         }
 
         guard status != .error,
-              let channelData = outputBuffer.floatChannelData?[0] else { return }
-        let chunk = UnsafeBufferPointer(start: channelData, count: Int(outputBuffer.frameLength))
-        samplesLock.withLock { samples.append(contentsOf: chunk) }
+              let channelData = outputBuffer.floatChannelData?[0] else { return [] }
+        return Array(UnsafeBufferPointer(start: channelData, count: Int(outputBuffer.frameLength)))
     }
 }
