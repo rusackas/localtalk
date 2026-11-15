@@ -3,6 +3,9 @@ import AVFoundation
 class MicrophoneRecorder {
     private var engine = AVAudioEngine()
     private var converter: AVAudioConverter?
+    // The device the current engine was pointed at; nil means it was left on the
+    // system default.
+    private var engineDevice: AudioDeviceID?
     // Appended on the audio render thread, read from the main thread (stop() and
     // live-mode snapshots), so guard it.
     private var samples: [Float] = []
@@ -28,7 +31,7 @@ class MicrophoneRecorder {
         }
     }
 
-    /// Whether the system currently has a usable default input device.
+    /// Whether the chosen microphone (or the system default) is usable right now.
     var hasInputDevice: Bool { refreshInputNodeIfNeeded() }
 
     // Call once after mic permission is granted. Primes the converter and format
@@ -86,17 +89,32 @@ class MicrophoneRecorder {
         samplesLock.withLock { samples }
     }
 
-    // An AVAudioEngine's input node stays bound to whatever device was the default
-    // when it was created. If that was "no device" (hardware-side format of 0 Hz /
-    // 0 ch; the output side still shows a placeholder 44.1k format), build a fresh
-    // engine so a mic plugged in since then gets picked up. Returns whether a usable
-    // input is available.
+    // An AVAudioEngine's input node stays bound to whatever device it had when it
+    // was created. So build a fresh engine when the microphone chosen in Settings
+    // changes (including falling back to the system default while the chosen one
+    // is unplugged), or when the current one has no device (hardware-side format
+    // of 0 Hz / 0 ch; the output side still shows a placeholder 44.1k format) so a
+    // mic plugged in since then gets picked up. Returns whether a usable input is
+    // available.
     @discardableResult
     private func refreshInputNodeIfNeeded() -> Bool {
-        if Self.isUsable(engine.inputNode.inputFormat(forBus: 0)) { return true }
-        guard !isRecording, !engine.isRunning else { return false }
+        let wanted = InputDeviceSettings.selectedDeviceID()
+        let usable = Self.isUsable(engine.inputNode.inputFormat(forBus: 0))
+        if usable, wanted == engineDevice { return true }
+        guard !isRecording, !engine.isRunning else { return usable }
         engine = AVAudioEngine()
+        engineDevice = wanted
+        if let wanted { Self.bind(engine.inputNode, to: wanted) }
         return Self.isUsable(engine.inputNode.inputFormat(forBus: 0))
+    }
+
+    // Points the input node at a specific device instead of the system default.
+    // Must happen before the engine starts and before the node's format is read.
+    private static func bind(_ inputNode: AVAudioInputNode, to device: AudioDeviceID) {
+        guard let unit = inputNode.audioUnit else { return }
+        var device = device
+        AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+                             &device, UInt32(MemoryLayout<AudioDeviceID>.size))
     }
 
     // Rebuilds the converter when the input format changes (e.g. switching mics).

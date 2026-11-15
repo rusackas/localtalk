@@ -81,8 +81,23 @@ class WhisperTranscriber {
         options.wordTimestamps = wordTimestamps
         if start > 0 { options.clipTimestamps = [start] }
 
-        let results = try await whisper.transcribe(audioArray: samples, decodeOptions: options)
+        let results = try await whisper.transcribe(
+            audioArray: Self.paddedForDecoding(samples, from: startSample), decodeOptions: options)
         return results.flatMap(\.segments)
+    }
+
+    /// WhisperKit never decodes a stretch of audio shorter than its
+    /// `windowClipTime` (1 s): a quick "yes" or "no" came back as no segments at
+    /// all, and so did the last word of a live dictation when under a second
+    /// was left after the confirmed part. Trailing silence gets it past that
+    /// check without changing what the model hears, since it pads every window
+    /// with silence to 30 s anyway.
+    static let minimumDecodeSamples = Int(1.5 * Double(WhisperKit.sampleRate))
+
+    static func paddedForDecoding(_ samples: [Float], from startSample: Int = 0) -> [Float] {
+        let missing = minimumDecodeSamples - (samples.count - startSample)
+        guard missing > 0 else { return samples }
+        return samples + [Float](repeating: 0, count: missing)
     }
 
     private static func clean(_ text: String) -> String {

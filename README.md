@@ -52,6 +52,7 @@ Click the menubar icon → **Settings…** (or press ⌘,) to:
 
 - **Change trigger key** — default is fn/Globe; also supports Right Option (⌥) or Right Control (⌃)
 - **Launch at login**, and an optional **sound** on start/stop
+- **Microphone** — follow the system default input, or pick a specific device. If the chosen one is unplugged, LocalTalk uses the system default until it's back.
 - **Model** (Tiny, Base, Small, Medium) and **language** (or auto-detect). Switching downloads the new model on first use.
 - **Output mode** (see below), plus optional **capitalize first letter** and **add trailing period**
 - **View usage stats** — total time recorded and characters typed

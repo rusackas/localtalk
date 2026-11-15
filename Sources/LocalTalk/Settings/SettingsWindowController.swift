@@ -4,6 +4,8 @@ class SettingsWindowController: NSWindowController {
     private var triggerPopUp: NSPopUpButton!
     private var launchAtLoginCheck: NSButton!
     private var soundPopUp: NSPopUpButton!
+    private var micPopUp: NSPopUpButton!
+    private var micChoices: [InputDeviceSettings.Choice] = []
     private var modelPopUp: NSPopUpButton!
     private var languagePopUp: NSPopUpButton!
     private var insertionPopUp: NSPopUpButton!
@@ -43,12 +45,25 @@ class SettingsWindowController: NSWindowController {
         triggerPopUp.selectItem(at: TriggerKey.presets.firstIndex(of: TriggerKey.load()) ?? 0)
         launchAtLoginCheck.state = LaunchAtLogin.isEnabled ? .on : .off
         soundPopUp.selectItem(at: FeedbackSound.allCases.firstIndex(of: AudioFeedback.selected) ?? 0)
+        reloadMicrophones()
         modelPopUp.selectItem(at: ModelSize.allCases.firstIndex(of: TranscriptionSettings.modelSize) ?? 0)
         languagePopUp.selectItem(at: Language.allCases.firstIndex(of: TranscriptionSettings.language) ?? 0)
         insertionPopUp.selectItem(at: InsertionMode.allCases.firstIndex(of: OutputSettings.insertionMode) ?? 0)
         updateInsertionDescription()
         autoCapCheck.state = OutputSettings.autoCapitalize ? .on : .off
         trailingPeriodCheck.state = OutputSettings.addTrailingPeriod ? .on : .off
+    }
+
+    // Rebuilt every time the window opens, since devices come and go.
+    private func reloadMicrophones() {
+        micChoices = InputDeviceSettings.choices()
+        micPopUp.removeAllItems()
+        // Not addItem(withTitle:), which collapses devices that share a name.
+        for choice in micChoices {
+            micPopUp.menu?.addItem(NSMenuItem(title: choice.title, action: nil, keyEquivalent: ""))
+        }
+        let selected = InputDeviceSettings.selectedUID
+        micPopUp.selectItem(at: micChoices.firstIndex { $0.uid == selected } ?? 0)
     }
 
     private func updateStats() {
@@ -90,6 +105,10 @@ class SettingsWindowController: NSWindowController {
         triggerPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
         TriggerKey.presets.forEach { triggerPopUp.addItem(withTitle: $0.displayName) }
         stack.addArrangedSubview(labeledRow("Hold to record:", control: triggerPopUp))
+
+        micPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
+        micPopUp.widthAnchor.constraint(lessThanOrEqualToConstant: 220).isActive = true
+        stack.addArrangedSubview(labeledRow("Microphone:", control: micPopUp))
 
         soundPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
         FeedbackSound.allCases.forEach { soundPopUp.addItem(withTitle: $0.displayName) }
@@ -220,6 +239,10 @@ class SettingsWindowController: NSWindowController {
         onTriggerChanged?(trigger)
 
         AudioFeedback.selected = FeedbackSound.allCases[soundPopUp.indexOfSelectedItem]
+        if micChoices.indices.contains(micPopUp.indexOfSelectedItem) {
+            let mic = micChoices[micPopUp.indexOfSelectedItem]
+            InputDeviceSettings.select(uid: mic.uid, name: mic.name)
+        }
         TranscriptionSettings.modelSize = ModelSize.allCases[modelPopUp.indexOfSelectedItem]
         TranscriptionSettings.language = Language.allCases[languagePopUp.indexOfSelectedItem]
         OutputSettings.insertionMode = InsertionMode.allCases[insertionPopUp.indexOfSelectedItem]

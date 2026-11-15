@@ -143,3 +143,28 @@ struct KeyMonitorTests {
         #expect(rec.downs == 2)
     }
 }
+
+@Suite("Microphone choices")
+struct MicrophoneChoiceTests {
+    private let builtIn = AudioInputDevice(id: 1, uid: "builtin", name: "MacBook Pro Microphone")
+    private let usb = AudioInputDevice(id: 2, uid: "usb", name: "USB Mic")
+
+    @Test func systemDefaultComesFirstThenConnectedDevices() {
+        let choices = InputDeviceSettings.choices(devices: [builtIn, usb], savedUID: "usb", savedName: "USB Mic")
+        #expect(choices.map(\.title) == ["System default", "MacBook Pro Microphone", "USB Mic"])
+        #expect(choices.map(\.uid) == [nil, "builtin", "usb"])
+    }
+
+    @Test func unpluggedSavedDeviceStaysSelectable() {
+        let choices = InputDeviceSettings.choices(devices: [builtIn], savedUID: "usb", savedName: "USB Mic")
+        #expect(choices.last == .init(title: "USB Mic (not connected)", uid: "usb", name: "USB Mic"))
+        #expect(choices.count == 3)
+    }
+
+    @Test func enumeratedDevicesHaveIdentity() {
+        // Whatever this machine has (possibly nothing, on CI): no blanks, no duplicate UIDs.
+        let devices = AudioInputDevice.all()
+        #expect(devices.allSatisfy { !$0.uid.isEmpty && !$0.name.isEmpty })
+        #expect(Set(devices.map(\.uid)).count == devices.count)
+    }
+}

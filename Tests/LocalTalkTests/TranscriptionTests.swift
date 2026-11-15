@@ -112,3 +112,28 @@ struct WhisperCleanupTests {
         #expect(!WhisperTranscriber.isNoise(text))
     }
 }
+
+@Suite("Short recordings")
+struct ShortRecordingTests {
+    private let minimum = WhisperTranscriber.minimumDecodeSamples
+
+    @Test func aQuickWordIsPaddedWithSilence() {
+        let word = [Float](repeating: 0.5, count: 6_000)  // ~0.4 s
+        let padded = WhisperTranscriber.paddedForDecoding(word)
+        #expect(padded.count == minimum)
+        #expect(Array(padded.prefix(6_000)) == word)
+        #expect(padded.dropFirst(6_000).allSatisfy { $0 == 0 })
+    }
+
+    @Test func aShortTailAfterTheStartPointIsPadded() {
+        // Live mode: 10 s recorded, 9.5 s already confirmed, half a second left.
+        let samples = [Float](repeating: 0.5, count: 160_000)
+        let padded = WhisperTranscriber.paddedForDecoding(samples, from: 152_000)
+        #expect(padded.count - 152_000 == minimum)
+    }
+
+    @Test func longerAudioIsLeftAlone() {
+        let samples = [Float](repeating: 0.5, count: minimum + 1)
+        #expect(WhisperTranscriber.paddedForDecoding(samples) == samples)
+    }
+}
